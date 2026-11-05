@@ -116,7 +116,10 @@ resource "kubernetes_deployment_v1" "vllm" {
             value = local.home_dir
           }
 
+          # The provider sends every bool field of this block, using false when unset, so
+          # run_as_non_root must be set here too or it overrides the pod-level true
           security_context {
+            run_as_non_root            = true
             allow_privilege_escalation = false
             read_only_root_filesystem  = true
             capabilities {
