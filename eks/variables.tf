@@ -28,6 +28,26 @@ variable "endpoint_public_access_cidrs" {
   type        = list(string)
 }
 
+variable "system_instance_types" {
+  description = "Instance types for the system node group (cluster add-ons)"
+  type        = list(string)
+}
+
+variable "system_min_size" {
+  description = "Minimum number of system nodes"
+  type        = number
+}
+
+variable "system_max_size" {
+  description = "Maximum number of system nodes"
+  type        = number
+}
+
+variable "system_desired_size" {
+  description = "Desired number of system nodes"
+  type        = number
+}
+
 variable "gpu_instance_types" {
   description = "Instance types for the GPU node group"
   type        = list(string)

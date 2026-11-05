@@ -32,6 +32,16 @@ module "eks" {
   subnet_ids = data.terraform_remote_state.vpc.outputs.private_subnets
 
   eks_managed_node_groups = {
+    # CPU nodes for cluster add-ons (CoreDNS, etc.)
+    system = {
+      ami_type       = "AL2023_x86_64_STANDARD"
+      instance_types = var.system_instance_types
+
+      min_size     = var.system_min_size
+      max_size     = var.system_max_size
+      desired_size = var.system_desired_size
+    }
+
     gpu = {
       # EKS-optimized AMI with NVIDIA driver and container toolkit preinstalled
       ami_type       = "AL2023_x86_64_NVIDIA"
@@ -57,6 +67,16 @@ module "eks" {
       labels = {
         # Matches the NVIDIA device plugin chart's default node affinity
         "nvidia.com/gpu.present" = "true"
+      }
+
+      # Only pods tolerating this taint (vLLM, NVIDIA device plugin) run on GPU nodes;
+      # CoreDNS stays on system nodes, DaemonSets like kube-proxy and vpc-cni tolerate all taints
+      taints = {
+        gpu = {
+          key    = "nvidia.com/gpu"
+          value  = "true"
+          effect = "NO_SCHEDULE"
+        }
       }
     }
   }
