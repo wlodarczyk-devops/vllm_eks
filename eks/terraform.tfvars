@@ -20,9 +20,11 @@ system_desired_size   = 1
 #   g6.xlarge:   1x L4,   24 GiB GPU memory
 gpu_instance_types = ["g4dn.xlarge", "g5.xlarge", "g6.xlarge"]
 gpu_min_size       = 0
-gpu_max_size       = 1
-gpu_desired_size   = 1
-gpu_disk_size      = 100
+gpu_max_size       = 2
+# Only used when the node group is created; afterwards Cluster Autoscaler sets the
+# desired size (between min and max) from pending pods, e.g. one node per vLLM replica
+gpu_desired_size = 2
+gpu_disk_size    = 100
 
 nvidia_device_plugin_version = "0.20.1"
 

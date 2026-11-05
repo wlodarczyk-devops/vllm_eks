@@ -4,6 +4,13 @@ namespace    = "vllm"
 
 vllm_version = "v0.33.0"
 
+# One pod per GPU node (eks/ gpu node group: 2 nodes)
+replicas = 2
+
+# Graceful shutdown as recommended by llm-d: grace period = preStop + shutdown + 15 s = 75 s
+shutdown_timeout_seconds = 45
+prestop_sleep_seconds    = 15
+
 # API server address: all interfaces so probes and the Service reach it
 host = "0.0.0.0"
 port = 8000

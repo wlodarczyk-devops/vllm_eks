@@ -13,6 +13,21 @@ variable "namespace" {
   type        = string
 }
 
+variable "replicas" {
+  description = "Number of vLLM pods; each needs its own GPU node"
+  type        = number
+}
+
+variable "shutdown_timeout_seconds" {
+  description = "vLLM --shutdown-timeout: seconds to let in-flight requests finish after SIGTERM"
+  type        = number
+}
+
+variable "prestop_sleep_seconds" {
+  description = "preStop sleep before SIGTERM, so the pod leaves the Service/InferencePool before vLLM stops"
+  type        = number
+}
+
 variable "vllm_version" {
   description = "Tag of the vllm/vllm-openai image"
   type        = string
