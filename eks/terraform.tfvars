@@ -21,8 +21,8 @@ system_desired_size   = 1
 gpu_instance_types = ["g4dn.xlarge", "g5.xlarge", "g6.xlarge"]
 gpu_min_size       = 0
 gpu_max_size       = 2
-# Only used when the node group is created; the EKS module ignores later changes,
-# so scale an existing group with `aws eks update-nodegroup-config` (see README)
+# Only used when the node group is created; afterwards Cluster Autoscaler sets the
+# desired size (between min and max) from pending pods, e.g. one node per vLLM replica
 gpu_desired_size = 2
 gpu_disk_size    = 100
 
