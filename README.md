@@ -225,7 +225,7 @@ To pause only the GPU nodes, scale vLLM to 0 instead of the node group. Cluster 
 Check what Cluster Autoscaler is doing:
 
 ```bash
-kubectl -n kube-system logs deploy/cluster-autoscaler -f
+kubectl -n kube-system logs deploy/cluster-autoscaler-aws-cluster-autoscaler -f   # the chart names it <release>-aws-cluster-autoscaler
 kubectl -n kube-system get configmap cluster-autoscaler-status -o yaml   # per node group: health, scale-up/down state
 ```
 

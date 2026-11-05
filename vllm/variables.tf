@@ -18,6 +18,11 @@ variable "replicas" {
   type        = number
 }
 
+variable "progress_deadline_seconds" {
+  description = "Seconds a rollout may go without a new pod becoming Ready before Kubernetes marks it failed"
+  type        = number
+}
+
 variable "shutdown_timeout_seconds" {
   description = "vLLM --shutdown-timeout: seconds to let in-flight requests finish after SIGTERM"
   type        = number
