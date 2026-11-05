@@ -134,7 +134,7 @@ terraform init
 terraform apply
 ```
 
-The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. Every pod start downloads the ~8 GB model (the first start on a node also pulls the ~11 GB image), which takes several minutes. `apply` waits for the pod to become ready (up to `startup_timeout_seconds` = 20 min).
+The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. Every pod start downloads the ~8 GB model (the first start on a node also pulls the ~11 GB image), which takes several minutes. `apply` waits for the pod to become ready, up to `rollout_timeout` (60 min). The startup probe separately gives vLLM `startup_timeout_seconds` (20 min) after the container starts before restarting it.
 
 | Setting | Value |
 |---|---|
