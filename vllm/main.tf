@@ -18,7 +18,15 @@ locals {
     SERVE_DTYPE                  = var.dtype
     SERVE_MAX_MODEL_LEN          = tostring(var.max_model_len)
     SERVE_GPU_MEMORY_UTILIZATION = tostring(var.gpu_memory_utilization)
+    # Recommended by llm-d: keep probe and metrics scrapes out of the access log
+    SERVE_DISABLE_ACCESS_LOG_FOR_ENDPOINTS = "/health,/metrics,/v1/models"
+    # Recommended by llm-d: on SIGTERM, reject new requests and let in-flight ones finish
+    SERVE_SHUTDOWN_TIMEOUT = tostring(var.shutdown_timeout_seconds)
   }
+
+  # Graceful shutdown (llm-d pattern): the pod leaves the Service/InferencePool during the
+  # preStop sleep, then vLLM drains for shutdown_timeout_seconds, plus 15 s teardown buffer
+  termination_grace_period_seconds = var.prestop_sleep_seconds + var.shutdown_timeout_seconds + 15
 }
 
 resource "kubernetes_namespace_v1" "vllm" {
@@ -42,11 +50,16 @@ resource "kubernetes_deployment_v1" "vllm" {
   }
 
   spec {
-    replicas = 1
+    replicas = var.replicas
 
-    # One GPU per node: stop the old pod before starting the new one
+    # One GPU per pod and no spare GPU: replace pods one at a time (stop one, start its
+    # replacement) so the other replicas keep serving during an update
     strategy {
-      type = "Recreate"
+      type = "RollingUpdate"
+      rolling_update {
+        max_surge       = 0
+        max_unavailable = 1
+      }
     }
 
     selector {
@@ -65,6 +78,8 @@ resource "kubernetes_deployment_v1" "vllm" {
 
         # vLLM never calls the Kubernetes API
         automount_service_account_token = false
+
+        termination_grace_period_seconds = local.termination_grace_period_seconds
 
         security_context {
           run_as_non_root = true
@@ -100,7 +115,18 @@ resource "kubernetes_deployment_v1" "vllm" {
             "--dtype", "$(SERVE_DTYPE)",
             "--max-model-len", "$(SERVE_MAX_MODEL_LEN)",
             "--gpu-memory-utilization", "$(SERVE_GPU_MEMORY_UTILIZATION)",
+            "--disable-access-log-for-endpoints", "$(SERVE_DISABLE_ACCESS_LOG_FOR_ENDPOINTS)",
+            "--shutdown-timeout", "$(SERVE_SHUTDOWN_TIMEOUT)",
           ]
+
+          # Keep serving while the endpoint is removed from the Service/InferencePool
+          lifecycle {
+            pre_stop {
+              exec {
+                command = ["/bin/sleep", tostring(var.prestop_sleep_seconds)]
+              }
+            }
+          }
 
           dynamic "env" {
             for_each = local.serve_env
@@ -171,9 +197,10 @@ resource "kubernetes_deployment_v1" "vllm" {
             failure_threshold = var.startup_timeout_seconds / 10
           }
 
+          # Recommended by llm-d: ready only once the OpenAI API serves the model
           readiness_probe {
             http_get {
-              path = "/health"
+              path = "/v1/models"
               port = "http"
             }
             period_seconds = 5
