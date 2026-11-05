@@ -28,8 +28,9 @@ variable "host" {
   type        = string
 
   validation {
-    condition     = contains(["0.0.0.0", "::"], var.host)
-    error_message = "host must be 0.0.0.0 or :: (all interfaces), otherwise the kubelet probes and the Service can't reach vLLM."
+    # Only IPv4 all-interfaces: the cluster's pod network is IPv4-only, so "::" could break probes
+    condition     = var.host == "0.0.0.0"
+    error_message = "host must be 0.0.0.0 (all IPv4 interfaces), otherwise the kubelet probes and the Service can't reach vLLM."
   }
 }
 

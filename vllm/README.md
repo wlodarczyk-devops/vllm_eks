@@ -48,7 +48,7 @@ Use the `SERVE_` prefix, never `VLLM_`. vLLM v0.33.0 logs `Unknown vLLM environm
 
 Host and port are set to avoid common misconfigurations:
 
-- `--host 0.0.0.0` (enforced by validation of `host`): vLLM must listen on all interfaces, or the kubelet probes and the Service can't reach it.
+- `--host 0.0.0.0` (enforced by validation of `host`): vLLM must listen on all interfaces, or the kubelet probes and the Service can't reach it. `::` (IPv6) isn't allowed because the cluster's pod network is IPv4-only.
 - `port` (validated to 1024–65535) sets `--port`, the container port, the Service port and the `port_forward` output together. The probes and the Service use the named port `http`, so they follow automatically.
 - `enable_service_links = false` in the pod spec: otherwise Kubernetes injects variables for the Service named `vllm`, including `VLLM_PORT=tcp://<ip>:8000`. vLLM reads that as its internal port and fails with `VLLM_PORT ... appears to be a URI`.
 
