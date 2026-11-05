@@ -8,24 +8,49 @@ Reference for every option of `vllm serve` in **vLLM v0.33.0** (the version pinn
 
 ## How options are set in this repository
 
-The container image `vllm/vllm-openai` has the entrypoint `vllm serve`. The container `args` in [`main.tf`](main.tf) are appended to it:
+The container image `vllm/vllm-openai` has the entrypoint `vllm serve`. vLLM has no environment variables for these options, so the values are set as **container environment variables** (`SERVE_*`, from `local.serve_env` in [`main.tf`](main.tf)), and the container `args` reference them as `$(NAME)`. Kubernetes substitutes them before starting the container:
 
 ```hcl
+# Environment variables (values from terraform.tfvars)
+SERVE_MODEL                  = "Qwen/Qwen3-4B-Instruct-2507"
+SERVE_HOST                   = "0.0.0.0"
+SERVE_PORT                   = "8000"
+SERVE_DTYPE                  = "half"
+SERVE_MAX_MODEL_LEN          = "16384"
+SERVE_GPU_MEMORY_UTILIZATION = "0.9"
+
+# Container args
 args = [
-  var.model,                                                          # positional: model to serve
-  "--dtype", var.dtype,                                               # half
-  "--max-model-len", tostring(var.max_model_len),                     # 16384
-  "--gpu-memory-utilization", tostring(var.gpu_memory_utilization),   # 0.90
+  "$(SERVE_MODEL)",
+  "--host", "$(SERVE_HOST)",
+  "--port", "$(SERVE_PORT)",
+  "--dtype", "$(SERVE_DTYPE)",
+  "--max-model-len", "$(SERVE_MAX_MODEL_LEN)",
+  "--gpu-memory-utilization", "$(SERVE_GPU_MEMORY_UTILIZATION)",
 ]
 ```
 
 which runs:
 
 ```bash
-vllm serve Qwen/Qwen3-4B-Instruct-2507 --dtype half --max-model-len 16384 --gpu-memory-utilization 0.90
+vllm serve Qwen/Qwen3-4B-Instruct-2507 --host 0.0.0.0 --port 8000 --dtype half --max-model-len 16384 --gpu-memory-utilization 0.9
 ```
 
-To use another option, add it to `args` (and, to keep it configurable, a variable in `variables.tf` with its value in `terraform.tfvars`), then run `terraform apply`. The Deployment uses the `Recreate` strategy, so the pod restarts with the new options.
+Check the values in the running pod with `kubectl -n vllm exec deploy/vllm -- env | grep ^SERVE_`.
+
+To use another option:
+
+1. Add a variable in `variables.tf` and its value in `terraform.tfvars`.
+2. Add a `SERVE_<OPTION>` entry to `local.serve_env` and `"--<option>", "$(SERVE_<OPTION>)"` to `args` in `main.tf`.
+3. Run `terraform apply`. The Deployment uses the `Recreate` strategy, so the pod restarts with the new options.
+
+Use the `SERVE_` prefix, never `VLLM_`. vLLM v0.33.0 logs `Unknown vLLM environment variable detected` for unknown `VLLM_*` variables (or refuses to start with `--fail-on-environ-validation`). `VLLM_PORT` and `VLLM_HOST_IP` are reserved for vLLM's internal communication, not the API server.
+
+Host and port are set to avoid common misconfigurations:
+
+- `--host 0.0.0.0` (enforced by validation of `host`): vLLM must listen on all interfaces, or the kubelet probes and the Service can't reach it.
+- `port` (validated to 1024–65535) sets `--port`, the container port, the Service port and the `port_forward` output together. The probes and the Service use the named port `http`, so they follow automatically.
+- `enable_service_links = false` in the pod spec: otherwise Kubernetes injects variables for the Service named `vllm`, including `VLLM_PORT=tcp://<ip>:8000`. vLLM reads that as its internal port and fails with `VLLM_PORT ... appears to be a URI`.
 
 Option syntax:
 
@@ -92,7 +117,7 @@ Each step, vLLM's scheduler builds one batch from all running requests. These op
 
 | Option | Default | This repo | Explanation |
 |---|---|---|---|
-| `--host` / `--port` | all interfaces / `8000` | default | Address the HTTP server listens on. The Kubernetes Service and the health probes use port 8000, so change them together. |
+| `--host` / `--port` | all interfaces / `8000` | `0.0.0.0` / `8000` | Address the HTTP server listens on. Set from the `host` and `port` variables. `port` also sets the container port, Service and probes (see [above](#how-options-are-set-in-this-repository)). |
 | `--api-key` | not set | default | Requires `Authorization: Bearer <key>` on `/v1`, `/v2` and `/inference` endpoints. Other endpoints (such as `/invocations`) stay open, so it isn't full security. Our Service is `ClusterIP` (not exposed outside the cluster). If you add a key, pass it from a Kubernetes Secret, not `terraform.tfvars`. |
 | `--enable-auto-tool-choice` + `--tool-call-parser` | off | default | Enables tool/function calling in the OpenAI API. Qwen models use Hermes-style tool calls, so for this model: `--enable-auto-tool-choice --tool-call-parser hermes`. |
 | `--reasoning-parser` | not set | default | Splits a reasoning model's "thinking" from its answer (`reasoning_content` in the response). `Qwen3-4B-Instruct-2507` is a non-thinking model, so it isn't needed. |

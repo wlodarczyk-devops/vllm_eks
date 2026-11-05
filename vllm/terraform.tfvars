@@ -4,6 +4,10 @@ namespace    = "vllm"
 
 vllm_version = "v0.33.0"
 
+# API server address: all interfaces so probes and the Service reach it
+host = "0.0.0.0"
+port = 8000
+
 # Apache 2.0, not gated (no HF token needed), 4.0B params, ~7.5 GiB weights in fp16
 model = "Qwen/Qwen3-4B-Instruct-2507"
 # fp16: T4 (g4dn) has no bf16 support; same setting on g5/g6 for consistent behaviour
