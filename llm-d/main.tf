@@ -1,4 +1,16 @@
 locals {
+  # llm-d's Optimized Baseline values without router.modelServers.matchLabels: its label
+  # llm-d.ai/guide=optimized-baseline would be merged into our selector (Helm merges maps across
+  # values files, and null doesn't remove a key set in another values file) and match no vLLM pod
+  optimized_baseline = yamldecode(file("${path.module}/values/optimized-baseline.values.yaml"))
+  optimized_baseline_values = merge(local.optimized_baseline, {
+    router = merge(local.optimized_baseline.router, {
+      modelServers = {
+        for k, v in local.optimized_baseline.router.modelServers : k => v if k != "matchLabels"
+      }
+    })
+  })
+
   # Pod Security "restricted": both router images already run as UID/GID 65532 (distroless nonroot)
   pod_security_context = {
     runAsNonRoot   = true
@@ -101,7 +113,7 @@ resource "helm_release" "router" {
   # Later files override earlier ones: llm-d base → Optimized Baseline → this cluster
   values = [
     file("${path.module}/values/base.values.yaml"),
-    file("${path.module}/values/optimized-baseline.values.yaml"),
+    yamlencode(local.optimized_baseline_values),
     yamlencode(local.overrides),
   ]
 
