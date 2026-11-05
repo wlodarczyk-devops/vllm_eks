@@ -19,7 +19,8 @@ AWS eu-central-1
             │     └── namespace vllm                            (vllm/)
             │           ├── Deployment vllm  Qwen3-4B-Instruct-2507, fp16, 16k context
             │           └── Service vllm     ClusterIP :8000
-            └── add-ons: vpc-cni, coredns, kube-proxy; IRSA enabled
+            ├── add-ons: vpc-cni, coredns, kube-proxy; IRSA enabled
+            └── cluster-autoscaler (kube-system, system node)   ← scales both node groups within min/max
 ```
 
 ## Repository layout
@@ -103,8 +104,9 @@ What it creates:
 | Cluster | `vllm-eks`, Kubernetes `1.37`, in the private subnets. IRSA (OIDC provider) enabled. The identity that runs `apply` gets cluster-admin. |
 | Add-ons | `vpc-cni` (installed before nodes), `coredns`, `kube-proxy` |
 | Node group `system` | `t3.medium`, 1 node (scales 1–2), `AL2023_x86_64_STANDARD` AMI. Runs CoreDNS and other add-ons. |
-| Node group `gpu` | 1 node (scales 0–1), `AL2023_x86_64_NVIDIA` AMI (NVIDIA driver preinstalled), 100 GiB gp3 disk for the vLLM image and model. Label `nvidia.com/gpu.present=true`, taint `nvidia.com/gpu=true:NoSchedule` so only GPU workloads run there. DaemonSets like `kube-proxy` and `vpc-cni` tolerate all taints and run on every node. |
+| Node group `gpu` | 1 node (scales 0–1), `AL2023_x86_64_NVIDIA` AMI (NVIDIA driver preinstalled), 100 GiB gp3 disk for the vLLM image and model. Labels `nvidia.com/gpu.present=true` and `k8s.amazonaws.com/accelerator=nvidia` (Cluster Autoscaler's GPU label), taint `nvidia.com/gpu=true:NoSchedule` so only GPU workloads run there. DaemonSets like `kube-proxy` and `vpc-cni` tolerate all taints and run on every node. |
 | NVIDIA device plugin | Helm chart `0.20.1` in `kube-system`. Makes `nvidia.com/gpu` a resource pods can request. |
+| Cluster Autoscaler | `v1.37.0` (Helm chart `9.60.0`) in `kube-system` on the system node. Adds nodes when pods are `Pending` for lack of resources (e.g. a vLLM replica needing a GPU) and removes nodes that have been unneeded for 10 min, always within each node group's `min_size`/`max_size`. Finds the node groups by the tags EKS sets on their Auto Scaling groups. AWS access via IRSA (role `vllm-eks-cluster-autoscaler`, may only resize this cluster's groups). Never removes a node running pods with `emptyDir` (vLLM) or `kube-system` pods. |
 
 GPU instance types are tried in order, in every AZ, until one has capacity:
 
@@ -194,15 +196,18 @@ cd ../eks && terraform destroy     # needs TF_VAR_endpoint_public_access_cidrs s
 cd ../vpc && terraform destroy
 ```
 
-To pause only the GPU node: the EKS module ignores later changes to `desired_size` (so autoscalers don't cause drift), so changing `gpu_desired_size` in `terraform.tfvars` after the first apply has no effect. Scale the node group directly instead:
+To pause only the GPU nodes, scale vLLM to 0 instead of the node group. Cluster Autoscaler would add a node back for any `Pending` vLLM pod, and the EKS module ignores later changes to `gpu_desired_size` anyway.
+
+1. Set the vLLM Deployment's `replicas` to 0 in `vllm/` and run `terraform apply` there.
+2. Cluster Autoscaler removes the now empty GPU nodes after 10 min (`cluster_autoscaler_scale_down_unneeded_time`), down to `gpu_min_size` (0).
+3. To start again, set `replicas` back and apply. The pending pods make Cluster Autoscaler add GPU nodes (up to `gpu_max_size`). Each new node pulls the image and the pod downloads the model again.
+
+Check what Cluster Autoscaler is doing:
 
 ```bash
-NG=$(aws eks list-nodegroups --region eu-central-1 --cluster-name vllm-eks --query 'nodegroups[?starts_with(@, `gpu`)]' --output text)
-aws eks update-nodegroup-config --region eu-central-1 --cluster-name vllm-eks --nodegroup-name "$NG" \
-  --scaling-config minSize=0,maxSize=1,desiredSize=0     # desiredSize=1 to start again
+kubectl -n kube-system logs deploy/cluster-autoscaler -f
+kubectl -n kube-system get configmap cluster-autoscaler-status -o yaml   # per node group: health, scale-up/down state
 ```
-
-The vLLM pod stays `Pending` until a GPU node is back. The new node pulls the image and the pod downloads the model again.
 
 ## Configuration
 

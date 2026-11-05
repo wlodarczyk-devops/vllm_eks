@@ -26,6 +26,16 @@ gpu_disk_size      = 100
 
 nvidia_device_plugin_version = "0.20.1"
 
+# Cluster Autoscaler: scales node groups within their min/max sizes based on pending pods.
+# Image minor version must match kubernetes_version (1.37); chart 9.60.0 ships v1.37.0.
+cluster_autoscaler_chart_version              = "9.60.0"
+cluster_autoscaler_image_tag                  = "v1.37.0"
+cluster_autoscaler_scale_down_unneeded_time   = "10m"
+cluster_autoscaler_scale_down_delay_after_add = "10m"
+cluster_autoscaler_cpu_request                = "100m"
+cluster_autoscaler_memory_request             = "300Mi"
+cluster_autoscaler_memory_limit               = "600Mi"
+
 tags = {
   Project   = "vllm-eks"
   ManagedBy = "terraform"
