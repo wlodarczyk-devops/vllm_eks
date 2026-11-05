@@ -52,6 +52,10 @@ resource "kubernetes_deployment_v1" "vllm" {
   spec {
     replicas = var.replicas
 
+    # Kubernetes marks a rollout as failed if a new pod isn't Ready within this time (default 600 s).
+    # A pod on a new GPU node needs node scale-up + image pull + model load, which can exceed 10 min.
+    progress_deadline_seconds = var.progress_deadline_seconds
+
     # One GPU per pod and no spare GPU: replace pods one at a time (stop one, start its
     # replacement) so the other replicas keep serving during an update
     strategy {

@@ -7,6 +7,10 @@ vllm_version = "v0.33.0"
 # One pod per GPU node (eks/ gpu node group: 2 nodes)
 replicas = 2
 
+# Per pod: Cluster Autoscaler adds a node (~1 min) + image pull on a new node (~5 min)
+# + model download/load/warm-up (up to startup_timeout_seconds = 20 min). Measured ~11 min.
+progress_deadline_seconds = 1800
+
 # Graceful shutdown as recommended by llm-d: grace period = preStop + shutdown + 15 s = 75 s
 shutdown_timeout_seconds = 45
 prestop_sleep_seconds    = 15
