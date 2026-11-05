@@ -24,7 +24,12 @@ variable "router_chart_version" {
 }
 
 variable "gaie_version" {
-  description = "Gateway API Inference Extension version of the vendored CRD file in crds/"
+  description = "Gateway API Inference Extension release whose CRDs (v1-manifests.yaml) are installed"
+  type        = string
+}
+
+variable "gaie_manifest_sha256" {
+  description = "SHA-256 of that release's v1-manifests.yaml; update together with gaie_version"
   type        = string
 }
 

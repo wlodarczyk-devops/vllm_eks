@@ -35,7 +35,7 @@ Optimized Baseline scheduling (from `values/optimized-baseline.values.yaml`):
 
 | File | Content |
 |---|---|
-| `crds/gateway-api-inference-extension-v1.6.2.yaml` | InferencePool CRD, copied unmodified from the GAIE v1.6.2 release (the version llm-d v1.0.0 uses) |
+| `main.tf` `data "http" "gaie_crds"` | Downloads the InferencePool CRD from the Gateway API Inference Extension release `gaie_version` (v1.6.2, the version llm-d v1.0.0 uses) and checks it against `gaie_manifest_sha256` before applying |
 | `values/base.values.yaml` | llm-d's recommended router values, unmodified |
 | `values/optimized-baseline.values.yaml` | llm-d's Optimized Baseline values, unmodified |
 | `main.tf` | CRD (`kubernetes_manifest`) and the `llm-d-router-standalone` Helm chart with the two values files plus this cluster's overrides (`local.overrides`) |

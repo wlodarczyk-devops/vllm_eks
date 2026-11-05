@@ -67,10 +67,22 @@ locals {
   }
 }
 
-# Gateway API Inference Extension CRD (InferencePool), vendored and pinned
+# Gateway API Inference Extension CRDs (InferencePool) from the pinned release; the checksum
+# makes sure exactly the reviewed file is applied
+data "http" "gaie_crds" {
+  url = "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/${var.gaie_version}/v1-manifests.yaml"
+
+  lifecycle {
+    postcondition {
+      condition     = self.status_code == 200 && sha256(self.response_body) == var.gaie_manifest_sha256
+      error_message = "Download of the GAIE ${var.gaie_version} CRDs failed or its SHA-256 doesn't match gaie_manifest_sha256."
+    }
+  }
+}
+
 resource "kubernetes_manifest" "crds" {
   for_each = {
-    for m in provider::kubernetes::manifest_decode_multi(file("${path.module}/crds/gateway-api-inference-extension-${var.gaie_version}.yaml")) :
+    for m in provider::kubernetes::manifest_decode_multi(data.http.gaie_crds.response_body) :
     m.metadata.name => m
   }
 
