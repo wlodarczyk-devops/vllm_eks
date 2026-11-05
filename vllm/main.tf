@@ -95,6 +95,16 @@ resource "kubernetes_deployment_v1" "vllm" {
           }
         }
 
+        # Prefer separate AZs without stranding a pod when only one AZ has GPU capacity.
+        topology_spread_constraint {
+          max_skew           = 1
+          topology_key       = "topology.kubernetes.io/zone"
+          when_unsatisfiable = var.production_mode ? "DoNotSchedule" : "ScheduleAnyway"
+          label_selector {
+            match_labels = local.labels
+          }
+        }
+
         # Run only on the GPU node group
         node_selector = {
           "nvidia.com/gpu.present" = "true"
@@ -109,10 +119,10 @@ resource "kubernetes_deployment_v1" "vllm" {
 
         container {
           name  = "vllm"
-          image = "vllm/vllm-openai:${var.vllm_version}"
+          image = var.image_digest == null ? "vllm/vllm-openai:${var.vllm_version}" : "vllm/vllm-openai@${var.image_digest}"
 
           # Image entrypoint is `vllm serve`; Kubernetes replaces $(NAME) with the env values below
-          args = [
+          args = concat([
             "$(SERVE_MODEL)",
             "--host", "$(SERVE_HOST)",
             "--port", "$(SERVE_PORT)",
@@ -121,7 +131,7 @@ resource "kubernetes_deployment_v1" "vllm" {
             "--gpu-memory-utilization", "$(SERVE_GPU_MEMORY_UTILIZATION)",
             "--disable-access-log-for-endpoints", "$(SERVE_DISABLE_ACCESS_LOG_FOR_ENDPOINTS)",
             "--shutdown-timeout", "$(SERVE_SHUTDOWN_TIMEOUT)",
-          ]
+          ], var.model_revision == null ? [] : ["--revision", var.model_revision, "--tokenizer-revision", var.model_revision])
 
           # Keep serving while the endpoint is removed from the Service/InferencePool
           lifecycle {
@@ -165,13 +175,15 @@ resource "kubernetes_deployment_v1" "vllm" {
 
           resources {
             requests = {
-              cpu              = var.cpu_request
-              memory           = var.memory_request
-              "nvidia.com/gpu" = 1
+              cpu                 = var.cpu_request
+              memory              = var.memory_request
+              "ephemeral-storage" = var.ephemeral_storage_request
+              "nvidia.com/gpu"    = 1
             }
             limits = {
-              memory           = var.memory_limit
-              "nvidia.com/gpu" = 1
+              memory              = var.memory_limit
+              "ephemeral-storage" = var.ephemeral_storage_limit
+              "nvidia.com/gpu"    = 1
             }
           }
 
@@ -197,6 +209,7 @@ resource "kubernetes_deployment_v1" "vllm" {
               path = "/health"
               port = "http"
             }
+            timeout_seconds   = 3
             period_seconds    = 10
             failure_threshold = var.startup_timeout_seconds / 10
           }
@@ -207,7 +220,8 @@ resource "kubernetes_deployment_v1" "vllm" {
               path = "/v1/models"
               port = "http"
             }
-            period_seconds = 5
+            period_seconds  = 5
+            timeout_seconds = 3
           }
 
           liveness_probe {
@@ -215,13 +229,14 @@ resource "kubernetes_deployment_v1" "vllm" {
               path = "/health"
               port = "http"
             }
+            timeout_seconds   = 3
             period_seconds    = 10
             failure_threshold = 3
           }
         }
 
         # Pod-lifetime storage on the node disk: model files and caches are downloaded/rebuilt
-        # on every pod start (hostPath isn't allowed by the "restricted" Pod Security Standard)
+        # whenever the pod is replaced (hostPath isn't allowed by the "restricted" Pod Security Standard)
         volume {
           name = "home"
           empty_dir {

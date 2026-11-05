@@ -1,9 +1,7 @@
 data "terraform_remote_state" "vpc" {
-  backend = "local"
+  backend = var.vpc_state_backend
 
-  config = {
-    path = var.vpc_state_path
-  }
+  config = var.vpc_state_backend == "local" ? { path = var.vpc_state_path } : var.vpc_remote_state_config
 }
 
 module "eks" {
@@ -15,7 +13,11 @@ module "eks" {
 
   endpoint_public_access                   = var.endpoint_public_access
   endpoint_public_access_cidrs             = var.endpoint_public_access_cidrs
-  enable_cluster_creator_admin_permissions = true
+  enable_cluster_creator_admin_permissions = var.enable_cluster_creator_admin_permissions
+  endpoint_private_access                  = true
+  access_entries                           = var.access_entries
+  enabled_log_types                        = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  cloudwatch_log_group_retention_in_days   = 90
 
   # IAM Roles for Service Accounts (OIDC provider)
   enable_irsa = true
@@ -24,7 +26,11 @@ module "eks" {
     coredns    = {}
     kube-proxy = {}
     vpc-cni = {
-      before_compute = true
+      before_compute           = true
+      service_account_role_arn = module.vpc_cni_irsa.arn
+      configuration_values = jsonencode({
+        enableNetworkPolicy = "true"
+      })
     }
   }
 
@@ -34,8 +40,9 @@ module "eks" {
   eks_managed_node_groups = {
     # CPU nodes for cluster add-ons (CoreDNS, etc.)
     system = {
-      ami_type       = "AL2023_x86_64_STANDARD"
-      instance_types = var.system_instance_types
+      ami_type                   = "AL2023_x86_64_STANDARD"
+      instance_types             = var.system_instance_types
+      iam_role_attach_cni_policy = false
 
       min_size     = var.system_min_size
       max_size     = var.system_max_size
@@ -44,8 +51,9 @@ module "eks" {
 
     gpu = {
       # EKS-optimized AMI with NVIDIA driver and container toolkit preinstalled
-      ami_type       = "AL2023_x86_64_NVIDIA"
-      instance_types = var.gpu_instance_types
+      ami_type                   = "AL2023_x86_64_NVIDIA"
+      instance_types             = var.gpu_instance_types
+      iam_role_attach_cni_policy = false
 
       min_size     = var.gpu_min_size
       max_size     = var.gpu_max_size

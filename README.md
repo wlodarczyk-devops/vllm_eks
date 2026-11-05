@@ -4,6 +4,17 @@ Terraform for serving an open-weight LLM with [vLLM](https://docs.vllm.ai) on a 
 
 The model, `Qwen/Qwen3-4B-Instruct-2507`, is served through vLLM's OpenAI-compatible API.
 
+## Hardening proposal
+
+See [IMPROVEMENTS.md](IMPROVEMENTS.md) for the change table and
+[docs/OPERATIONS.md](docs/OPERATIONS.md) for activation, migration and acceptance
+checks. Lab node/NAT sizing is retained. Network isolation and flow logs are now
+configured; the optional TLS/authenticated gateway requires externally managed
+Secrets. Production overrides are in `examples/production/`.
+
+The serving image and model/tokenizer are pinned to immutable identifiers in
+`vllm/terraform.tfvars`. Changes below have not been deployed by this review.
+
 ## Architecture
 
 ```text
@@ -54,7 +65,8 @@ Each Terraform folder is a separate stack with the same files:
 | `outputs.tf` | Values other stacks or you need |
 | `.terraform.lock.hcl` | Locked provider versions (committed) |
 
-State is stored locally in each folder (`terraform.tfstate`, ignored by git).
+State remains local until deliberately migrated. S3 backend/locking examples are in
+[`examples/state/`](examples/state/); see the operations guide before migration.
 
 ## Prerequisites
 
@@ -143,7 +155,7 @@ terraform init
 terraform apply
 ```
 
-The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. Every pod start downloads the ~8 GB model (the first start on a node also pulls the ~11 GB image), which takes several minutes. `apply` waits for the pod to become ready, up to `rollout_timeout` (60 min). The startup probe separately gives vLLM `startup_timeout_seconds` (20 min) after the container starts before restarting it.
+The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. Every replacement pod downloads the ~8 GB model (the first start on a node also pulls the ~11 GB image), which takes several minutes. `apply` waits for the pod to become ready, up to `rollout_timeout` (60 min). The startup probe separately gives vLLM `startup_timeout_seconds` (20 min) after the container starts before restarting it.
 
 | Setting | Value |
 |---|---|
@@ -156,7 +168,7 @@ The stack finds the cluster by name (`cluster_name`) through the AWS API, so it 
 | GPU memory | `--gpu-memory-utilization 0.90` |
 | Placement | Node selector `nvidia.com/gpu.present=true`, toleration for the GPU taint, 1 × `nvidia.com/gpu` |
 | Resources | CPU request 2, memory request 8Gi / limit 12Gi, `/dev/shm` 2Gi |
-| Model storage | `emptyDir` volume at `/home/vllm` (`home_size` 30Gi): the model is downloaded to `/home/vllm/.cache/huggingface` on every pod start and deleted when the pod stops. `/tmp` is a separate `emptyDir` (`tmp_size` 5Gi). |
+| Model storage | `emptyDir` volume at `/home/vllm` (`home_size` 30Gi): the model is downloaded to `/home/vllm/.cache/huggingface` when a new pod is created and deleted when that pod is removed; container restarts preserve it. `/tmp` is a separate `emptyDir` (`tmp_size` 5Gi). |
 | Security | Namespace enforces the `restricted` [Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/). The pod runs as the image's non-root `vllm` user (UID 2000, GID 0) with a read-only root filesystem, no privilege escalation, all capabilities dropped, the `RuntimeDefault` seccomp profile and no service account token. Writable paths: `/home/vllm`, `/tmp`, `/dev/shm`. |
 | Replicas | 2 (`replicas`), one per GPU node |
 | Probes | Startup probe on `/health` (20 min budget), liveness on `/health`, readiness on `/v1/models` (llm-d recommendation) |
@@ -207,9 +219,11 @@ kubectl -n vllm describe pod -l app=vllm      # scheduling problems, e.g. no GPU
 
 ## Cost and teardown
 
-The GPU node, the NAT gateway and the EKS control plane are billed per hour while they exist. Destroy everything when you're done, in reverse order:
+The GPU node, the NAT gateway and the EKS control plane are billed per hour while they exist. For teardown, first review CRD ownership in the operations guide. The following
+order applies only after resolving the CRD lifecycle guard:
 
 ```bash
+# The llm-d CRDs have prevent_destroy. Follow docs/OPERATIONS.md before teardown.
 cd llm-d && terraform destroy
 cd ../vllm && terraform destroy
 cd ../eks && terraform destroy     # needs TF_VAR_endpoint_public_access_cidrs set
@@ -241,7 +255,7 @@ All settings are variables. Change values in the stack's `terraform.tfvars` and 
 | vLLM namespace, labels, port | `vllm/` (`namespace`, `app=vllm`, `port`) and `llm-d/` (`namespace`, `model_server_labels`, `model_server_port`) |
 | GPU nodes vs vLLM replicas | `eks/` `gpu_max_size` ≥ `vllm/` `replicas` (one GPU per pod) |
 
-Secrets never go into `terraform.tfvars`. Pass them as environment variables (`TF_VAR_<name>`), like the public IP above.
+Secrets never go into `terraform.tfvars`. Pass them as environment variables (`TF_VAR_<name>`), like the public IP above. Environment variables keep values out of source, but do not prevent Terraform from persisting managed secret values in state. Gateway secrets are externally managed.
 
 ## GitHub workflow
 

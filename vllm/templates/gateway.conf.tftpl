@@ -1,0 +1,66 @@
+pid /tmp/nginx.pid;
+worker_processes auto;
+error_log /dev/stderr warn;
+events { worker_connections 1024; }
+http {
+  # No prompts, query strings, Authorization headers, or response bodies in logs.
+  log_format safe '$remote_addr $request_method $uri $status $request_time';
+  access_log /dev/stdout safe;
+  server_tokens off;
+  client_body_temp_path /tmp/client_body;
+  proxy_temp_path /tmp/proxy;
+  client_max_body_size 1m;
+  client_body_timeout 15s;
+  client_header_timeout 15s;
+  send_timeout 60s;
+  keepalive_timeout 30s;
+  limit_req_zone $binary_remote_addr zone=clients:10m rate=10r/s;
+  limit_conn_zone $binary_remote_addr zone=connections:10m;
+  limit_req_status 429;
+  limit_conn_status 429;
+  resolver ${dns_resolver} valid=30s ipv6=off;
+
+  # Probe listener is not published by the Service or allowed by NetworkPolicy.
+  server {
+    listen 8080;
+    location = /healthz { access_log off; return 200 'ok'; }
+    location / { return 404; }
+  }
+  server {
+    listen 8443 ssl;
+    ssl_certificate /etc/gateway-tls/tls.crt;
+    ssl_certificate_key /etc/gateway-tls/tls.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    auth_basic "Inference";
+    auth_basic_user_file /etc/gateway-auth/htpasswd;
+    limit_req zone=clients burst=20 nodelay;
+    limit_conn connections 8;
+    # Resolve at request time: the optional llm-d stack may be installed later.
+    set $inference_upstream ${upstream};
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Authorization "";
+    proxy_set_header X-Gateway-Destination-Endpoint "";
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 120s;
+    proxy_send_timeout 30s;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_next_upstream off;
+
+    location = /v1/models {
+      limit_except GET { deny all; }
+      proxy_pass http://$inference_upstream;
+    }
+    location = /v1/chat/completions {
+      limit_except POST { deny all; }
+      proxy_pass http://$inference_upstream;
+    }
+    location = /v1/completions {
+      limit_except POST { deny all; }
+      proxy_pass http://$inference_upstream;
+    }
+    # Do not proxy administrative, metrics, or unreviewed inference endpoints.
+    location / { return 404; }
+  }
+}

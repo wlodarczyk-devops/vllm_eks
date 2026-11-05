@@ -26,6 +26,11 @@ variable "endpoint_public_access" {
 variable "endpoint_public_access_cidrs" {
   description = "CIDR blocks allowed to reach the public Kubernetes API endpoint"
   type        = list(string)
+
+  validation {
+    condition     = !var.endpoint_public_access || (length(var.endpoint_public_access_cidrs) > 0 && alltrue([for cidr in var.endpoint_public_access_cidrs : can(cidrnetmask(cidr)) && !endswith(cidr, "/0")]))
+    error_message = "Public access requires valid, non-worldwide IPv4 CIDRs."
+  }
 }
 
 variable "system_instance_types" {
@@ -36,16 +41,31 @@ variable "system_instance_types" {
 variable "system_min_size" {
   description = "Minimum number of system nodes"
   type        = number
+
+  validation {
+    condition     = var.system_min_size >= 1 && floor(var.system_min_size) == var.system_min_size
+    error_message = "Keep at least one whole system node."
+  }
 }
 
 variable "system_max_size" {
   description = "Maximum number of system nodes"
   type        = number
+
+  validation {
+    condition     = var.system_max_size >= var.system_min_size && floor(var.system_max_size) == var.system_max_size
+    error_message = "System maximum must be a whole number at least the minimum."
+  }
 }
 
 variable "system_desired_size" {
   description = "Desired number of system nodes"
   type        = number
+
+  validation {
+    condition     = var.system_desired_size >= var.system_min_size && var.system_desired_size <= var.system_max_size && floor(var.system_desired_size) == var.system_desired_size
+    error_message = "System desired size must be a whole number within min/max."
+  }
 }
 
 variable "gpu_instance_types" {
@@ -56,16 +76,31 @@ variable "gpu_instance_types" {
 variable "gpu_min_size" {
   description = "Minimum number of GPU nodes"
   type        = number
+
+  validation {
+    condition     = var.gpu_min_size >= 0 && floor(var.gpu_min_size) == var.gpu_min_size
+    error_message = "GPU minimum must be a nonnegative whole number."
+  }
 }
 
 variable "gpu_max_size" {
   description = "Maximum number of GPU nodes"
   type        = number
+
+  validation {
+    condition     = var.gpu_max_size >= var.gpu_min_size && floor(var.gpu_max_size) == var.gpu_max_size
+    error_message = "GPU maximum must be a whole number at least the minimum."
+  }
 }
 
 variable "gpu_desired_size" {
   description = "Desired number of GPU nodes"
   type        = number
+
+  validation {
+    condition     = var.gpu_desired_size >= var.gpu_min_size && var.gpu_desired_size <= var.gpu_max_size && floor(var.gpu_desired_size) == var.gpu_desired_size
+    error_message = "GPU desired size must be a whole number within min/max."
+  }
 }
 
 variable "gpu_disk_size" {
@@ -86,6 +121,11 @@ variable "cluster_autoscaler_chart_version" {
 variable "cluster_autoscaler_image_tag" {
   description = "Cluster Autoscaler image tag; its minor version must match kubernetes_version"
   type        = string
+
+  validation {
+    condition     = startswith(var.cluster_autoscaler_image_tag, "v${var.kubernetes_version}.")
+    error_message = "Autoscaler and Kubernetes minor versions must match."
+  }
 }
 
 variable "cluster_autoscaler_scale_down_unneeded_time" {

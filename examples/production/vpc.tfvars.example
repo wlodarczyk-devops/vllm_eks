@@ -1,0 +1,2 @@
+# Adds a NAT gateway per AZ; review the recurring cost before use.
+single_nat_gateway = false

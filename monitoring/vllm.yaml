@@ -1,0 +1,68 @@
+# Requires Prometheus Operator CRDs and a Prometheus instance in monitoring.
+# Its serviceMonitorSelector/ruleSelector must include app.kubernetes.io/part-of=llm-serving.
+# Prometheus pods must carry app.kubernetes.io/name=prometheus for NetworkPolicy.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vllm
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: llm-serving
+spec:
+  namespaceSelector:
+    matchNames: [vllm]
+  selector:
+    matchLabels:
+      app: vllm
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      relabelings:
+        - targetLabel: inference_service
+          replacement: vllm
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: vllm
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: llm-serving
+spec:
+  groups:
+    - name: llm-serving
+      rules:
+        - alert: VLLMNoHealthyTargets
+          expr: sum(up{inference_service="vllm"}) < 1 or absent(up{inference_service="vllm"})
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: No healthy vLLM metrics targets
+            description: Check ServiceMonitor selection, network policy, GPU nodes, model loading and pod readiness.
+        - alert: VLLMQueueBacklog
+          expr: sum(vllm:num_requests_waiting{inference_service="vllm"}) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Persistent inference queue backlog
+            description: Admission limits or serving capacity need attention; calibrate this threshold with realistic traffic.
+        - alert: VLLMHighTimeToFirstToken
+          expr: histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{inference_service="vllm"}[5m]))) > 5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: vLLM p95 time to first token exceeds five seconds
+            description: Initial threshold only; establish separate SLOs for prompt lengths and workload classes.
+        - alert: VLLMDeploymentUnavailable
+          expr: kube_deployment_status_replicas_available{namespace="vllm",deployment=~"vllm|inference-gateway|llm-d-epp"} < 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: A serving deployment has no available replicas
+            description: Requires kube-state-metrics; check deployment events and pod logs.
