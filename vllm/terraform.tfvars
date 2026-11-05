@@ -29,5 +29,8 @@ shm_size       = "2Gi"
 home_size = "30Gi"
 tmp_size  = "5Gi"
 
-# Image (~11 GB) pull + model (~8 GB) download + load on pod start
+# Startup probe budget after container start: model (~8 GB) download + load + warm-up
 startup_timeout_seconds = 1200
+
+# terraform apply waits this long for the pod to be Ready: image (~11 GB) pull on a new node + startup
+rollout_timeout = "60m"

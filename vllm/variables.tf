@@ -90,6 +90,11 @@ variable "tmp_size" {
 }
 
 variable "startup_timeout_seconds" {
-  description = "Time allowed for image pull, model download and load before the pod is restarted (multiple of 60)"
+  description = "Time allowed after container start for model download and load before the pod is restarted (multiple of 10)"
   type        = number
+}
+
+variable "rollout_timeout" {
+  description = "How long terraform apply waits for the Deployment to become Ready on create/update (e.g. 60m); includes image pull"
+  type        = string
 }

@@ -216,9 +216,10 @@ resource "kubernetes_deployment_v1" "vllm" {
     }
   }
 
+  # How long `terraform apply` waits for the pod to become Ready
   timeouts {
-    create = "${var.startup_timeout_seconds / 60 + 5}m"
-    update = "${var.startup_timeout_seconds / 60 + 5}m"
+    create = var.rollout_timeout
+    update = var.rollout_timeout
   }
 }
 
