@@ -79,8 +79,13 @@ variable "shm_size" {
   type        = string
 }
 
-variable "model_cache_host_path" {
-  description = "Path on the GPU node where Hugging Face model files are cached"
+variable "home_size" {
+  description = "Size limit of the writable home directory (model files and vLLM/Triton/torch caches)"
+  type        = string
+}
+
+variable "tmp_size" {
+  description = "Size limit of the writable /tmp directory"
   type        = string
 }
 

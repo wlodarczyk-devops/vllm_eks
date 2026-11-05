@@ -67,7 +67,7 @@ Values in the **This repo** column are what we pass today; "default" means we do
 
 | Option | Default | This repo | Explanation |
 |---|---|---|---|
-| `model` (positional) | `Qwen/Qwen3-0.6B` | `Qwen/Qwen3-4B-Instruct-2507` | Hugging Face model ID or local path. Weights are downloaded to `/root/.cache/huggingface`, which is the node-local cache in this repo. Also settable as `--model`. |
+| `model` (positional) | `Qwen/Qwen3-0.6B` | `Qwen/Qwen3-4B-Instruct-2507` | Hugging Face model ID or local path. Weights are downloaded to `$HOME/.cache/huggingface` (`/home/vllm/.cache/huggingface` here, a pod-lifetime `emptyDir`, so every pod start downloads them again). Also settable as `--model`. |
 | `--dtype` | `auto` | `half` | Precision of weights and activations. `auto` uses the model's own precision (bf16 for Qwen3). `half` = fp16. The T4 has no bf16 support, so we force fp16 on every node type for consistent behaviour. On g5/g6 you could switch to `bfloat16`. |
 | `--quantization`, `-q` | auto-detected | default | Quantization method of the weights (e.g. `awq`, `gptq`, `fp8`). Normally read from the model's config, so you only set it to override. Use it with a quantized model to fit a bigger model on the same GPU. |
 | `--revision` | latest | default | Git revision (branch, tag or commit) of the model on Hugging Face. Pin a commit for reproducible deployments. |

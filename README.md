@@ -134,7 +134,7 @@ terraform init
 terraform apply
 ```
 
-The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. The first start pulls the ~11 GB image and downloads the ~8 GB model, which takes several minutes. `apply` waits for the pod to become ready (up to `startup_timeout_seconds` = 20 min).
+The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. Every pod start downloads the ~8 GB model (the first start on a node also pulls the ~11 GB image), which takes several minutes. `apply` waits for the pod to become ready (up to `startup_timeout_seconds` = 20 min).
 
 | Setting | Value |
 |---|---|
@@ -147,7 +147,8 @@ The stack finds the cluster by name (`cluster_name`) through the AWS API, so it 
 | GPU memory | `--gpu-memory-utilization 0.90` |
 | Placement | Node selector `nvidia.com/gpu.present=true`, toleration for the GPU taint, 1 × `nvidia.com/gpu` |
 | Resources | CPU request 2, memory request 8Gi / limit 12Gi, `/dev/shm` 2Gi |
-| Model cache | `hostPath` `/opt/huggingface-cache` on the node, mounted at `/root/.cache/huggingface`. Pod restarts reuse it; a new node downloads again. |
+| Model storage | `emptyDir` volume at `/home/vllm` (`home_size` 30Gi): the model is downloaded to `/home/vllm/.cache/huggingface` on every pod start and deleted when the pod stops. `/tmp` is a separate `emptyDir` (`tmp_size` 5Gi). |
+| Security | Namespace enforces the `restricted` [Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/). The pod runs as the image's non-root `vllm` user (UID 2000, GID 0) with a read-only root filesystem, no privilege escalation, all capabilities dropped, the `RuntimeDefault` seccomp profile and no service account token. Writable paths: `/home/vllm`, `/tmp`, `/dev/shm`. |
 | Probes | `/health`: startup probe (20 min budget), then readiness and liveness |
 | Updates | `Recreate` strategy, because the only GPU must be free before the new pod starts |
 | Service | `ClusterIP` on `port` (8000, not exposed outside the cluster) |
@@ -201,7 +202,7 @@ aws eks update-nodegroup-config --region eu-central-1 --cluster-name vllm-eks --
   --scaling-config minSize=0,maxSize=1,desiredSize=0     # desiredSize=1 to start again
 ```
 
-The vLLM pod stays `Pending` until a GPU node is back. The model is downloaded again on the new node.
+The vLLM pod stays `Pending` until a GPU node is back. The new node pulls the image and the pod downloads the model again.
 
 ## Configuration
 
