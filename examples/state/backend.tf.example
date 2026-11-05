@@ -1,0 +1,4 @@
+# Copy into each root stack only as part of the documented state migration.
+terraform {
+  backend "s3" {}
+}

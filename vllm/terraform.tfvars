@@ -3,6 +3,9 @@ cluster_name = "vllm-eks"
 namespace    = "vllm"
 
 vllm_version = "v0.33.0"
+# Resolved from the public registry/model API on 2026-11-05; runtime validation is still required.
+image_digest   = "sha256:d825baf9ce4b1b6bfc5ecc7b79880c7e6748c65a72d697ce3d47607aafa84c6e"
+model_revision = "cdbee75f17c01a7cc42f958dc650907174af0554"
 
 # One pod per GPU node (eks/ gpu node group: 2 nodes)
 replicas = 2
@@ -36,7 +39,7 @@ memory_limit   = "12Gi"
 shm_size       = "2Gi"
 
 # Writable volumes on the node disk (GPU node root volume: 100 GiB, vLLM image ~11 GB).
-# home holds the ~8 GB model plus vLLM/Triton/torch caches; both are emptied when the pod stops.
+# home holds the ~8 GB model plus vLLM/Triton/torch caches; both are deleted when the pod is removed (container restarts preserve them).
 home_size = "30Gi"
 tmp_size  = "5Gi"
 

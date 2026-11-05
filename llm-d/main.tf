@@ -35,12 +35,30 @@ locals {
         targetPorts = [{ number = var.model_server_port }]
       }
 
+      tracing = { enabled = false }
+
       epp = {
+        replicas = var.router_replicas
+        # All replicas are Ready. Approximate caches remain local to each EPP.
+        haMode = "all-active"
+        deploymentStrategy = {
+          type          = "RollingUpdate"
+          rollingUpdate = { maxUnavailable = 0, maxSurge = 1 }
+        }
         podSecurityContext = local.pod_security_context
         securityContext    = local.container_security_context
 
         # Run on the CPU system node, never on a GPU node
         affinity = {
+          podAntiAffinity = {
+            preferredDuringSchedulingIgnoredDuringExecution = [{
+              weight = 100
+              podAffinityTerm = {
+                topologyKey   = "topology.kubernetes.io/zone"
+                labelSelector = { matchLabels = { "llm-d-router-gateway" = "${var.release_name}-epp" } }
+              }
+            }]
+          }
           nodeAffinity = {
             requiredDuringSchedulingIgnoredDuringExecution = {
               nodeSelectorTerms = [{
@@ -100,6 +118,10 @@ resource "kubernetes_manifest" "crds" {
 
   # The upstream file includes "status", which is set by the API server and not allowed here
   manifest = { for k, v in each.value : k => v if k != "status" }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # llm-d Router in Standalone Mode: EPP + Envoy sidecar in one pod, plus the InferencePool

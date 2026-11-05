@@ -1,0 +1,12 @@
+# Overlay on eks/terraform.tfvars after capacity/quota review.
+system_instance_types = ["m6i.large"]
+system_min_size       = 2
+system_desired_size   = 2
+system_max_size       = 4
+# A uniform GPU class makes latency and capacity measurements meaningful.
+gpu_instance_types = ["g6.xlarge"]
+gpu_min_size       = 2
+gpu_desired_size   = 2
+gpu_max_size       = 3
+# Keep creator admin until explicit access_entries have been verified in a
+# separate session. Then disable it; do not blindly apply a placeholder ARN.

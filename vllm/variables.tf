@@ -16,11 +16,21 @@ variable "namespace" {
 variable "replicas" {
   description = "Number of vLLM pods; each needs its own GPU node"
   type        = number
+
+  validation {
+    condition     = var.replicas >= 0 && floor(var.replicas) == var.replicas
+    error_message = "replicas must be a nonnegative whole number."
+  }
 }
 
 variable "progress_deadline_seconds" {
   description = "Seconds a rollout may go without a new pod becoming Ready before Kubernetes marks it failed"
   type        = number
+
+  validation {
+    condition     = var.progress_deadline_seconds > var.startup_timeout_seconds
+    error_message = "Rollout deadline must exceed the container startup budget."
+  }
 }
 
 variable "shutdown_timeout_seconds" {
@@ -67,16 +77,31 @@ variable "port" {
 variable "dtype" {
   description = "Weight and activation dtype (half = fp16, bfloat16, auto)"
   type        = string
+
+  validation {
+    condition     = contains(["half", "float16"], var.dtype)
+    error_message = "The mixed fleet includes T4: use half or float16."
+  }
 }
 
 variable "max_model_len" {
   description = "Maximum context length (prompt + output tokens) per request"
   type        = number
+
+  validation {
+    condition     = var.max_model_len > 0 && floor(var.max_model_len) == var.max_model_len
+    error_message = "Context length must be a positive whole number."
+  }
 }
 
 variable "gpu_memory_utilization" {
   description = "Fraction of GPU memory vLLM may use for weights, activations and KV cache"
   type        = number
+
+  validation {
+    condition     = var.gpu_memory_utilization > 0 && var.gpu_memory_utilization < 1
+    error_message = "GPU utilization must be greater than zero and less than one."
+  }
 }
 
 variable "cpu_request" {
@@ -112,6 +137,11 @@ variable "tmp_size" {
 variable "startup_timeout_seconds" {
   description = "Time allowed after container start for model download and load before the pod is restarted (multiple of 10)"
   type        = number
+
+  validation {
+    condition     = var.startup_timeout_seconds >= 10 && var.startup_timeout_seconds % 10 == 0
+    error_message = "Startup timeout must be a positive multiple of ten seconds."
+  }
 }
 
 variable "rollout_timeout" {

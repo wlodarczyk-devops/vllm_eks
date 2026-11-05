@@ -16,6 +16,10 @@ variable "namespace" {
 variable "release_name" {
   description = "Helm release name; also the prefix of the EPP Deployment and Service"
   type        = string
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$", var.release_name))
+    error_message = "Router release must be a lowercase DNS label of at most 40 characters (chart naming limit)."
+  }
 }
 
 variable "router_chart_version" {

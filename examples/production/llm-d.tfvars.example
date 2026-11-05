@@ -1,0 +1,2 @@
+router_replicas = 2
+# Size requests after benchmarking the chosen CPU fleet and traffic.

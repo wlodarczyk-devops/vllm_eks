@@ -1,0 +1,8 @@
+# One unique key per stack and environment. No AWS credentials in this file.
+bucket       = "REPLACE_WITH_EXISTING_STATE_BUCKET"
+key          = "production/vpc/terraform.tfstate"
+region       = "eu-central-1"
+encrypt      = true
+use_lockfile = true
+# Optional customer-managed encryption key; backend principal needs KMS access.
+# kms_key_id = "REPLACE_WITH_KMS_KEY_ARN"

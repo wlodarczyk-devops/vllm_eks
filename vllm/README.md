@@ -1,5 +1,11 @@
 # vLLM options
 
+For the hardening changes, immutable artifact pins, optional TLS gateway, network
+policies and migration requirements, see [IMPROVEMENTS.md](../IMPROVEMENTS.md) and
+[docs/OPERATIONS.md](../docs/OPERATIONS.md). Gateway credentials are HTTP Basic over
+TLS; the backend API-key option below is not the gateway authentication mechanism.
+
+
 Reference for every option of `vllm serve` in **vLLM v0.33.0** (the version pinned in `terraform.tfvars` as `vllm_version`).
 
 - [How options are set in this repository](#how-options-are-set-in-this-repository)
@@ -67,10 +73,10 @@ Values in the **This repo** column are what we pass today; "default" means we do
 
 | Option | Default | This repo | Explanation |
 |---|---|---|---|
-| `model` (positional) | `Qwen/Qwen3-0.6B` | `Qwen/Qwen3-4B-Instruct-2507` | Hugging Face model ID or local path. Weights are downloaded to `$HOME/.cache/huggingface` (`/home/vllm/.cache/huggingface` here, a pod-lifetime `emptyDir`, so every pod start downloads them again). Also settable as `--model`. |
+| `model` (positional) | `Qwen/Qwen3-0.6B` | `Qwen/Qwen3-4B-Instruct-2507` | Hugging Face model ID or local path. Weights are downloaded to `$HOME/.cache/huggingface` (`/home/vllm/.cache/huggingface` here, a pod-lifetime `emptyDir`, so pod replacement downloads them again; container restarts preserve them). Also settable as `--model`. |
 | `--dtype` | `auto` | `half` | Precision of weights and activations. `auto` uses the model's own precision (bf16 for Qwen3). `half` = fp16. The T4 has no bf16 support, so we force fp16 on every node type for consistent behaviour. On g5/g6 you could switch to `bfloat16`. |
 | `--quantization`, `-q` | auto-detected | default | Quantization method of the weights (e.g. `awq`, `gptq`, `fp8`). Normally read from the model's config, so you only set it to override. Use it with a quantized model to fit a bigger model on the same GPU. |
-| `--revision` | latest | default | Git revision (branch, tag or commit) of the model on Hugging Face. Pin a commit for reproducible deployments. |
+| `--revision` | latest | pinned commit | Git revision (branch, tag or commit) of the model on Hugging Face. Pin a commit for reproducible deployments. |
 | `--served-model-name` | same as `model` | default | Name clients use in the `model` field of API requests. For example `qwen3-4b` lets clients avoid the full Hugging Face ID and lets you swap models without changing clients. |
 | `--trust-remote-code` | `False` | default | Allows running Python code shipped with the model repository. Needed only for models with custom architectures. Qwen3 doesn't need it; keep it off for security. |
 | `--generation-config` | `auto` | default | Where default sampling parameters (temperature, top_p, ...) come from. `auto` uses the model's `generation_config.json`, which for Qwen3 holds Qwen's recommended values. `vllm` ignores it and uses vLLM's defaults. Requests can always override them. |

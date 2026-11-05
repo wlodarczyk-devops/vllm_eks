@@ -1,0 +1,7 @@
+# Configure only AFTER migrating the VPC stack and verifying its outputs.
+vpc_state_backend = "s3"
+vpc_remote_state_config = {
+  bucket = "REPLACE_WITH_EXISTING_STATE_BUCKET"
+  key    = "production/vpc/terraform.tfstate"
+  region = "eu-central-1"
+}

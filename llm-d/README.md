@@ -51,6 +51,11 @@ Optimized Baseline scheduling (from `values/optimized-baseline.values.yaml`):
 | Node placement | not set | not on GPU nodes | Keep GPUs for vLLM |
 | Model | `Qwen/Qwen3-32B`, 2 replicas × TP=2 on H100 | `Qwen/Qwen3-4B-Instruct-2507`, 2 replicas × 1 GPU (T4/A10G/L4) | Fits our GPUs and quota |
 
+**Hardening changes:** ingress now accepts gateway pods only; operator port-forward
+still works. `router_replicas` controls all-active EPP replicas with rolling updates.
+Production overrides use two replicas; their approximate cache indexes remain local.
+See [operations guidance](../docs/OPERATIONS.md) and [the change table](../IMPROVEMENTS.md).
+
 Not calibrated: `prefix-cache-affinity-filter`'s default `peakPrefillThroughput` (15928) is measured for Qwen3-32B on H100. llm-d's `guides/recipes/router/calibration` describes how to measure it for other hardware.
 
 ## Deploy
@@ -93,7 +98,19 @@ for p in $(kubectl -n vllm get pods -l app=vllm -o name); do
 done
 ```
 
-Expected with llm-d: most or all requests on the same pod (prefix-cache affinity). Repeat through the plain Service (`kubectl -n vllm port-forward svc/vllm 8000:8000`, port 8000) to see them spread across both pods. vLLM's `/metrics` on each pod also shows its prefix-cache hits (`grep prefix_cache`).
+With llm-d, repeated prefixes may favor the same pod; inspect per-pod cache hits
+and request distribution rather than assuming perfect affinity. For a fair comparison,
+run an in-cluster benchmark against the actual Service addresses, with narrowly
+scoped temporary network-policy access granted to a dedicated benchmark identity:
+
+- router: `http://llm-d-epp.vllm.svc.cluster.local:80`
+- plain Service: `http://vllm.vllm.svc.cluster.local:8000`
+
+Remove that temporary access after testing. The default policies deliberately block
+direct client access to both services. Use multiple connections and concurrent traffic,
+and record connection reuse: Kubernetes Service balancing is connection-based, not
+strict per-request round-robin. `kubectl port-forward svc/vllm` chooses one pod for
+the session, so it cannot test Service distribution across replicas.
 
 ## Remove
 
@@ -101,4 +118,7 @@ Expected with llm-d: most or all requests on the same pod (prefix-cache affinity
 terraform destroy
 ```
 
-This removes the router and the InferencePool CRD; the vLLM pods are not affected.
+This command is now blocked by the CRD `prevent_destroy` guard. CRDs are shared,
+cluster-scoped types: deleting one removes all its custom resources. Follow
+[the ownership/migration procedure](../docs/OPERATIONS.md) before teardown; do not
+remove the guard merely to make destroy succeed.
