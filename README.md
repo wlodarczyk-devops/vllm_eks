@@ -134,21 +134,24 @@ terraform init
 terraform apply
 ```
 
-The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. The first start pulls the ~11 GB image and downloads the ~8 GB model, which takes several minutes. `apply` waits for the pod to become ready (up to `startup_timeout_seconds` = 20 min).
+The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. Every pod start downloads the ~8 GB model (the first start on a node also pulls the ~11 GB image), which takes several minutes. `apply` waits for the pod to become ready (up to `startup_timeout_seconds` = 20 min).
 
 | Setting | Value |
 |---|---|
 | Image | `vllm/vllm-openai:v0.33.0` |
+| Configuration | Values set as `SERVE_*` container environment variables, referenced in `args` as `$(SERVE_...)` (see [`vllm/README.md`](vllm/README.md#how-options-are-set-in-this-repository)) |
+| API server | `--host 0.0.0.0 --port 8000`. `port` also sets the container port, Service and probes. Service env injection is disabled (`enable_service_links = false`) so the Service named `vllm` can't set `VLLM_PORT`. |
 | Model | `Qwen/Qwen3-4B-Instruct-2507`: Apache 2.0, not gated (no Hugging Face token), 4.0B parameters |
 | Precision | `--dtype half` (fp16). The T4 has no bf16 support, so fp16 is used on every node type. |
 | Context | `--max-model-len 16384` |
 | GPU memory | `--gpu-memory-utilization 0.90` |
 | Placement | Node selector `nvidia.com/gpu.present=true`, toleration for the GPU taint, 1 × `nvidia.com/gpu` |
 | Resources | CPU request 2, memory request 8Gi / limit 12Gi, `/dev/shm` 2Gi |
-| Model cache | `hostPath` `/opt/huggingface-cache` on the node, mounted at `/root/.cache/huggingface`. Pod restarts reuse it; a new node downloads again. |
+| Model storage | `emptyDir` volume at `/home/vllm` (`home_size` 30Gi): the model is downloaded to `/home/vllm/.cache/huggingface` on every pod start and deleted when the pod stops. `/tmp` is a separate `emptyDir` (`tmp_size` 5Gi). |
+| Security | Namespace enforces the `restricted` [Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/). The pod runs as the image's non-root `vllm` user (UID 2000, GID 0) with a read-only root filesystem, no privilege escalation, all capabilities dropped, the `RuntimeDefault` seccomp profile and no service account token. Writable paths: `/home/vllm`, `/tmp`, `/dev/shm`. |
 | Probes | `/health`: startup probe (20 min budget), then readiness and liveness |
 | Updates | `Recreate` strategy, because the only GPU must be free before the new pod starts |
-| Service | `ClusterIP` on port 8000 (not exposed outside the cluster) |
+| Service | `ClusterIP` on `port` (8000, not exposed outside the cluster) |
 
 Why this model fits: on the smallest GPU (T4, 16 GiB), the fp16 weights take ~7.5 GiB. Each token in the KV cache takes ~144 KiB. With 90% of GPU memory in use, ~4.6 GiB (~33k tokens) is left for the KV cache, so 2 full 16k-token requests fit at once. On A10G/L4 there's ~11.5 GiB (~84k tokens).
 
@@ -199,7 +202,7 @@ aws eks update-nodegroup-config --region eu-central-1 --cluster-name vllm-eks --
   --scaling-config minSize=0,maxSize=1,desiredSize=0     # desiredSize=1 to start again
 ```
 
-The vLLM pod stays `Pending` until a GPU node is back. The model is downloaded again on the new node.
+The vLLM pod stays `Pending` until a GPU node is back. The new node pulls the image and the pod downloads the model again.
 
 ## Configuration
 

@@ -4,6 +4,10 @@ namespace    = "vllm"
 
 vllm_version = "v0.33.0"
 
+# API server address: all interfaces so probes and the Service reach it
+host = "0.0.0.0"
+port = 8000
+
 # Apache 2.0, not gated (no HF token needed), 4.0B params, ~7.5 GiB weights in fp16
 model = "Qwen/Qwen3-4B-Instruct-2507"
 # fp16: T4 (g4dn) has no bf16 support; same setting on g5/g6 for consistent behaviour
@@ -20,7 +24,10 @@ memory_request = "8Gi"
 memory_limit   = "12Gi"
 shm_size       = "2Gi"
 
-model_cache_host_path = "/opt/huggingface-cache"
+# Writable volumes on the node disk (GPU node root volume: 100 GiB, vLLM image ~11 GB).
+# home holds the ~8 GB model plus vLLM/Triton/torch caches; both are emptied when the pod stops.
+home_size = "30Gi"
+tmp_size  = "5Gi"
 
-# Image (~11 GB) pull + model (~8 GB) download + load on first start
+# Image (~11 GB) pull + model (~8 GB) download + load on pod start
 startup_timeout_seconds = 1200

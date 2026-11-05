@@ -23,6 +23,27 @@ variable "model" {
   type        = string
 }
 
+variable "host" {
+  description = "Address the vLLM API server listens on inside the container"
+  type        = string
+
+  validation {
+    # Only IPv4 all-interfaces: the cluster's pod network is IPv4-only, so "::" could break probes
+    condition     = var.host == "0.0.0.0"
+    error_message = "host must be 0.0.0.0 (all IPv4 interfaces), otherwise the kubelet probes and the Service can't reach vLLM."
+  }
+}
+
+variable "port" {
+  description = "Port of the vLLM API server; also used for the container port, probes and Service"
+  type        = number
+
+  validation {
+    condition     = var.port >= 1024 && var.port <= 65535 && floor(var.port) == var.port
+    error_message = "port must be a whole number between 1024 and 65535."
+  }
+}
+
 variable "dtype" {
   description = "Weight and activation dtype (half = fp16, bfloat16, auto)"
   type        = string
@@ -58,8 +79,13 @@ variable "shm_size" {
   type        = string
 }
 
-variable "model_cache_host_path" {
-  description = "Path on the GPU node where Hugging Face model files are cached"
+variable "home_size" {
+  description = "Size limit of the writable home directory (model files and vLLM/Triton/torch caches)"
+  type        = string
+}
+
+variable "tmp_size" {
+  description = "Size limit of the writable /tmp directory"
   type        = string
 }
 
