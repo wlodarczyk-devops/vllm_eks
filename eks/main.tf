@@ -67,6 +67,9 @@ module "eks" {
       labels = {
         # Matches the NVIDIA device plugin chart's default node affinity
         "nvidia.com/gpu.present" = "true"
+        # Cluster Autoscaler's GPU label on AWS: a new node counts as ready only once the
+        # device plugin exposes its GPU, so it doesn't add extra nodes while the GPU initialises
+        "k8s.amazonaws.com/accelerator" = "nvidia"
       }
 
       # Only pods tolerating this taint (vLLM, NVIDIA device plugin) run on GPU nodes;

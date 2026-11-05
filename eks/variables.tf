@@ -78,6 +78,41 @@ variable "nvidia_device_plugin_version" {
   type        = string
 }
 
+variable "cluster_autoscaler_chart_version" {
+  description = "Version of the cluster-autoscaler Helm chart"
+  type        = string
+}
+
+variable "cluster_autoscaler_image_tag" {
+  description = "Cluster Autoscaler image tag; its minor version must match kubernetes_version"
+  type        = string
+}
+
+variable "cluster_autoscaler_scale_down_unneeded_time" {
+  description = "How long a node must be unneeded before Cluster Autoscaler removes it (e.g. 10m)"
+  type        = string
+}
+
+variable "cluster_autoscaler_scale_down_delay_after_add" {
+  description = "How long after a scale-up Cluster Autoscaler waits before considering scale-down (e.g. 10m)"
+  type        = string
+}
+
+variable "cluster_autoscaler_cpu_request" {
+  description = "CPU request of the Cluster Autoscaler container"
+  type        = string
+}
+
+variable "cluster_autoscaler_memory_request" {
+  description = "Memory request of the Cluster Autoscaler container"
+  type        = string
+}
+
+variable "cluster_autoscaler_memory_limit" {
+  description = "Memory limit of the Cluster Autoscaler container"
+  type        = string
+}
+
 variable "tags" {
   description = "Tags applied to all resources"
   type        = map(string)
