@@ -22,29 +22,21 @@ is blocked until publication fills them in.
 
 | Location | Contents |
 | --- | --- |
-| `models/` in this repository | Bucket Terraform, publishing script/dependency, and small release JSON |
+| `models/` in this repository | Publishing script/dependency, release PR helper, and small release JSON |
 | S3 | Durable versioned model archive |
 | `/models/model` inside a pod | Extracted files in an `emptyDir`, mounted read-only by vLLM |
 
 `vllm/model-storage.tf` reads `models/release.json` to select the object/version,
 checksum and API model name. `models/publish.py` stages downloads in a temporary
 directory outside the repository and removes them when finished. Removing the
-repository directory would remove the bucket's source configuration and break the
-release-file reference. It would not be a way to clear pod model caches.
+repository directory would break publishing and the release-file reference. It would not be a way to clear pod model caches.
 
 ## Deployment order
 
 1. Apply `vpc/`, creating ECR, S3 and STS endpoints. Create/retain EKS and its OIDC
    provider as usual.
 2. Create/publish the engine and downloader images using [ecr/README.md](../ecr/README.md).
-3. Create the private model bucket in a deployment session:
-
-   ```bash
-   cd models
-   terraform init
-   terraform apply
-   cd ..
-   ```
+3. Provision `models/` and `iam/` in [llm-artifact-infra](https://github.com/wlodarczyk-devops/llm-artifact-infra). This repository no longer owns S3/ECR infrastructure. Migrate existing states before applying from the new location; do not recreate existing resources.
 
 4. Prepare and publish the selected model from a trusted machine with AWS CLI:
 
@@ -69,6 +61,42 @@ Only the selected Qwen-style config/tokenizer and safetensors files are packaged
 including the license. Executable model code and pickle weights are excluded.
 The configured upstream commit is `cdbee75f17c01a7cc42f958dc650907174af0554` for
 `Qwen/Qwen3-4B-Instruct-2507`. Review the artifacts/license before promotion.
+
+## Manual GitHub publishing workflow
+
+After this branch is merged to `main`, run **Publish model release** from Actions
+on `main`, supplying a full 40-character upstream commit. The model identity comes
+from the reviewed `release.json`; changing it requires a normal code review.
+
+Configure repository Actions variables from the artifact infrastructure outputs:
+
+| Variable | Value |
+| --- | --- |
+| `AWS_REGION` | `eu-central-1` |
+| `MODEL_BUCKET` | `models/` output `bucket_name` |
+| `MODEL_PUBLISH_ROLE_ARN` | `iam/` output `model_publisher_role_arn` |
+| `MODEL_PUBLISH_RUNNER` | Optional Linux runner label with at least 25 GiB free temporary disk |
+
+The default runner is `ubuntu-latest`; disk is checked before requesting AWS
+credentials. Use a suitable larger or dedicated self-hosted Linux runner when
+needed. A custom runner also needs Python setup support and AWS CLI v2.
+
+The upload job uses short-lived OIDC credentials, with no stored AWS keys. A
+separate job receives only release metadata and GitHub write permissions, and opens
+a PR changing `models/release.json`. It has no OIDC permission or AWS credentials.
+Metadata is retained as an Actions artifact for seven days for recovery if PR
+creation fails. Enable **Allow GitHub Actions to create and approve pull requests**
+in repository Actions settings; the workflow creates PRs and never approves or
+merges them. Default workflow permissions remain read-only. The organization
+currently blocks this setting; an organization administrator must allow it before
+the repository setting can be enabled. Upload metadata remains recoverable if
+PR creation is blocked.
+
+The private organization is on GitHub Free, so protected environment approvals
+are unavailable. Trust is restricted to this repository's immutable-ID OIDC subject
+on `main`; this trusts main-branch workflows rather than a filename. The workflow
+does not deploy. Review its release PR, then deploy separately. The bucket and role
+variables cannot be set until infrastructure is provisioned.
 
 ## Identity and data protection
 
@@ -99,8 +127,9 @@ permissions if organizational policy requires a customer-managed key.
 
 ## Updates, rollback and limits
 
-For a new model release, set the new upstream commit and a NEW S3 key in
-`release.json`, reset `version_id`/`sha256` to null, then publish. The publisher
+For a new revision of the configured model, run `models/publish.py` with
+`--revision FULL_UPSTREAM_COMMIT` and the bucket/region arguments above. It derives
+a revision-specific S3 key without changing the selected release before upload succeeds. The publisher
 refuses an existing key and atomically updates the release file after checking the
 uploaded version/metadata. If upload completed but the local update was lost,
 inspect the object's version and SHA metadata before deliberately recovering the

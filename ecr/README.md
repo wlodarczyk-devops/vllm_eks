@@ -33,14 +33,7 @@ runtime options.
 
 ## Create and publish
 
-In a deployment session, create the repository:
-
-```bash
-cd ecr
-terraform init
-terraform apply
-cd ..
-```
+Provision `ecr/` in [llm-artifact-infra](https://github.com/wlodarczyk-devops/llm-artifact-infra) first. This directory contains publishing code only. Preserve any existing resource state using that repository's migration instructions. Its `iam/` stack provides a separate ECR publisher role for future GitHub automation; the model workflow has no ECR push rights.
 
 With Docker Engine API 1.46+ (for platform-specific pushes), Docker Buildx,
 Python 3 and an AWS publishing identity:

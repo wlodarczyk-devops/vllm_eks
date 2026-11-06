@@ -22,8 +22,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--region', required=True)
     parser.add_argument('--bucket', required=True)
+    parser.add_argument('--revision', help='Publish a new upstream commit without changing the selected release until upload succeeds')
     options = parser.parse_args()
     release = json.loads(RELEASE_PATH.read_text())
+    if options.revision is not None:
+        model_name = release['model_id'].split('/')[-1].lower()
+        release.update(model_revision=options.revision,
+                       key=f'models/{model_name}/{options.revision}/model.tar.gz',
+                       version_id=None, sha256=None)
     if not re.fullmatch(r'[0-9a-f]{40}', release['model_revision']):
         parser.error('Use a full upstream model commit')
     if not re.fullmatch(r'models/[A-Za-z0-9._/-]+/model\.tar\.gz', release['key']) or '..' in release['key'].split('/'):

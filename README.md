@@ -12,8 +12,8 @@ vLLM serves local files offline. See [ecr/README.md](ecr/README.md) and
 
 ```text
 AWS eu-central-1
-├── ECR vllm-eks-vllm  engine/downloader images               (ecr/)
-├── S3 vllm-eks-models-<account>-eu-central-1  versioned weights  (models/)
+├── ECR vllm-eks-vllm  engine/downloader images               (artifact infra repo)
+├── S3 vllm-eks-models-<account>-eu-central-1  versioned weights  (artifact infra repo)
 └── VPC vllm-eks  10.0.0.0/16                                   (vpc/)
     ├── public subnets  ×3 AZ  10.0.48.0/24, 10.0.49.0/24, 10.0.50.0/24   ← single NAT gateway
     └── private subnets ×3 AZ  10.0.0.0/20,  10.0.16.0/20, 10.0.32.0/20
@@ -38,14 +38,15 @@ AWS eu-central-1
 ```text
 .
 ├── vpc/                 # Terraform: VPC, subnets, NAT gateway, EKS subnet tags
-├── ecr/                 # Terraform: private engine/downloader image repository
-├── models/              # Terraform: private model bucket; one model publishing script
+├── ecr/                 # Engine/downloader publishing and release selection
+├── models/              # Model publishing, release PR helper and release selection
 ├── eks/                 # Terraform: EKS cluster, node groups, NVIDIA device plugin
 ├── vllm/                # Terraform: vLLM namespace, Deployment, Service
 │   └── README.md        # deployment settings and selected tuning options
 ├── llm-d/               # Terraform: llm-d Router PoC (InferencePool CRD, router Helm chart)
 │   └── README.md        # how llm-d works and how to test it
 ├── .github/workflows/
+│   ├── publish-model.yml  # Manual OIDC model upload, then release PR
 │   └── claude-review.yml  # Claude PR review on "@claude" comments
 ├── CLAUDE.md            # guidelines for Claude Code in this repo
 └── README.md
@@ -57,8 +58,8 @@ AWS eu-central-1
 | --- | --- | --- |
 | `vpc/` | Keep | Networking, NAT for remaining external dependencies, and private ECR/S3/STS access |
 | `eks/` | Keep | Cluster, CPU/GPU nodes, NVIDIA plugin, CNI identity and autoscaling |
-| `ecr/` | Keep | Engine/downloader repository and image publishing |
-| `models/` | Keep | S3 bucket infrastructure, model publishing, and the selected artifact's version/checksum |
+| `ecr/` | Keep publishing code | ECR infrastructure is in the artifact repository |
+| `models/` | Keep publishing code | Upload script, PR helper, and selected version/checksum; S3 infrastructure is separate |
 | `vllm/` | Keep | Model-reader IRSA, init download, GPU serving and Service |
 | `llm-d/` and its values files | Keep for the selected routing design | Cache/load-aware routing; the plain vLLM Service can serve without this optional router |
 | `versions.tf`, variables, tfvars, outputs and lockfiles | Keep in each stack | Separate state roots have their own provider/configuration contracts; repeated filenames are intentional |
@@ -76,7 +77,9 @@ upstream CLI dump and duplicate deployment model-name setting are also removed;
 files for existing resources. Ignored `.terraform/` directories are downloaded
 caches, not obsolete application code or a substitute for state.
 
-Each Terraform folder is a separate stack with the same files:
+S3/ECR and GitHub publisher roles are owned by [llm-artifact-infra](https://github.com/wlodarczyk-devops/llm-artifact-infra). Securely migrate any existing states before applying from the new location. This code change moves no state or AWS resources.
+
+Each remaining Terraform folder is a separate stack with the same files:
 
 | File | Content |
 |---|---|
@@ -194,8 +197,8 @@ kubectl describe node -l nvidia.com/gpu.present=true | grep nvidia.com/gpu   # n
 
 ### Publish images and model weights (before vLLM)
 
-Create/publish the engine and downloader images following
-[`ecr/README.md`](ecr/README.md), then create the model bucket and publish the
+Provision ECR, S3 and publisher IAM in [llm-artifact-infra](https://github.com/wlodarczyk-devops/llm-artifact-infra) first. Publish the engine and downloader images following
+[`ecr/README.md`](ecr/README.md), then publish the
 pinned snapshot following [`models/README.md`](models/README.md). Image releases
 are in `ecr/image/release.json`; the model version/checksum is in
 `models/release.json`. The VPC provides ECR API/registry and STS interface endpoints
@@ -305,7 +308,7 @@ live in `models/release.json`. Settings that must match across stacks:
 
 | Setting | Must be the same in |
 |---|---|
-| Cluster name `vllm-eks` | `vpc/` `cluster_name` (subnet tags), `eks/`, `ecr/`, `models/`, `vllm/`, `llm-d/` `cluster_name` |
+| Cluster name `vllm-eks` | `vpc/` `cluster_name` (subnet tags), `eks/`, `vllm/`, `llm-d/` and artifact repository stacks' `cluster_name` |
 | Region `eu-central-1` | `region` in all stacks, and `azs` in `vpc/` |
 | GPU taint and label | `eks/main.tf` node group and `vllm/main.tf` toleration and node selector; `llm-d/main.tf` avoids nodes with the label |
 | vLLM namespace, labels, port | `vllm/` (`namespace`, `app=vllm`, `port`) and `llm-d/` (`namespace`, `model_server_labels`, `model_server_port`) |
