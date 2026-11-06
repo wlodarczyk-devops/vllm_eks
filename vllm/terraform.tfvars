@@ -2,13 +2,13 @@ region       = "eu-central-1"
 cluster_name = "vllm-eks"
 namespace    = "vllm"
 
-vllm_version = "v0.33.0"
+# The combined image version, base digest and model commit are in ecr/image/release.json.
 
 # One pod per GPU node (eks/ gpu node group: 2 nodes)
 replicas = 2
 
 # Per pod: Cluster Autoscaler adds a node (~1 min) + image pull on a new node (~5 min)
-# + model download/load/warm-up (up to startup_timeout_seconds = 20 min). Measured ~11 min.
+# + engine load/warm-up (startup_timeout_seconds = 20 min). Benchmark the combined image.
 progress_deadline_seconds = 1800
 
 # Graceful shutdown as recommended by llm-d: grace period = preStop + shutdown + 15 s = 75 s
@@ -36,13 +36,13 @@ memory_limit   = "12Gi"
 shm_size       = "2Gi"
 
 # Writable volumes on the node disk (GPU node root volume: 100 GiB, vLLM image ~11 GB).
-# home holds runtime caches; a separate 15Gi volume holds verified S3 model files.
+# home holds runtime caches; weights are baked into the read-only image at /opt/model.
 # Volumes survive container restarts but are deleted on pod removal.
 home_size = "30Gi"
 tmp_size  = "5Gi"
 
-# Startup probe budget after container start: model (~8 GB) download + load + warm-up
+# Startup probe budget after container start: model load + warm-up (no runtime download).
 startup_timeout_seconds = 1200
 
-# terraform apply waits this long for the pod to be Ready: image (~11 GB) pull on a new node + startup
+# terraform apply waits this long for the pod to be Ready: combined image pull on a new node + startup
 rollout_timeout = "60m"

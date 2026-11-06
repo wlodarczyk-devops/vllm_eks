@@ -1,7 +1,5 @@
-# Gateway routing keeps S3 model transfers off the NAT gateway. This endpoint is
-# shared by the private subnets; IAM/bucket policies enforce model-reader access.
-# Retain the default endpoint policy so ECR layer downloads and other authorized
-# S3 users continue to work. An endpoint policy never grants IAM permissions.
+# ECR stores image layers in S3. Private ECR pulls require this gateway endpoint
+# as well as ecr.api and ecr.dkr. No application model bucket is needed.
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = module.vpc.vpc_id
   service_name      = "com.amazonaws.${var.region}.s3"

@@ -1,12 +1,12 @@
 # vLLM options
 
-Model loading now uses a verified local snapshot from S3. See
-[model-store/README.md](../model-store/README.md) for preparation, deployment order,
-init-container IRSA and rollback. The API model name remains the Hugging Face ID;
-the positional model path passed to vLLM is `/models/model`, with offline mode enabled.
+The engine and pinned model weights now come from one private ECR image.
+See [ecr/README.md](../ecr/README.md) for publishing and private image pulls.
+The serving path is `/opt/model`; `--served-model-name` preserves the public API
+model name. The image release is defined in `ecr/image/release.json`.
 
 
-Reference for every option of `vllm serve` in **vLLM v0.33.0** (the version pinned in `terraform.tfvars` as `vllm_version`).
+Reference for every option of `vllm serve` in **vLLM v0.33.0** (the base version pinned by digest in `ecr/image/release.json`).
 
 - [How options are set in this repository](#how-options-are-set-in-this-repository)
 - [Key options explained](#key-options-explained): the options that matter most for this deployment, with explanations for our GPUs
@@ -73,7 +73,7 @@ Values in the **This repo** column are what we pass today; "default" means we do
 
 | Option | Default | This repo | Explanation |
 |---|---|---|---|
-| `model` (positional) | `Qwen/Qwen3-0.6B` | `/models/model` | Verified local model directory populated from S3 by init containers. `--served-model-name` preserves `Qwen/Qwen3-4B-Instruct-2507` for API clients. The serving process uses offline mode. |
+| `model` (positional) | `Qwen/Qwen3-0.6B` | `/opt/model` | Local weights/config/tokenizer included in the ECR image. Offline serving uses `--served-model-name Qwen/Qwen3-4B-Instruct-2507` for API compatibility. |
 | `--dtype` | `auto` | `half` | Precision of weights and activations. `auto` uses the model's own precision (bf16 for Qwen3). `half` = fp16. The T4 has no bf16 support, so we force fp16 on every node type for consistent behaviour. On g5/g6 you could switch to `bfloat16`. |
 | `--quantization`, `-q` | auto-detected | default | Quantization method of the weights (e.g. `awq`, `gptq`, `fp8`). Normally read from the model's config, so you only set it to override. Use it with a quantized model to fit a bigger model on the same GPU. |
 | `--revision` | latest | default | Git revision (branch, tag or commit) of the model on Hugging Face. Pin a commit for reproducible deployments. |

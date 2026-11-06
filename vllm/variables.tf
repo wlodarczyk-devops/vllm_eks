@@ -33,13 +33,10 @@ variable "prestop_sleep_seconds" {
   type        = number
 }
 
-variable "vllm_version" {
-  description = "Tag of the vllm/vllm-openai image"
-  type        = string
-}
+
 
 variable "model" {
-  description = "Hugging Face model ID advertised by the API; must match the active S3 release"
+  description = "Model name advertised by the API; must match ecr/image/release.json"
   type        = string
 }
 

@@ -4,7 +4,7 @@
 *.tfplan
 crash.log
 
-# Generated model artifacts and local Python tooling
+# Local tooling and any previously downloaded model artifacts
 model-store/artifacts/
 .venv/
 __pycache__/

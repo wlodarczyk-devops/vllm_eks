@@ -1,16 +1,17 @@
-# S3 model artifact improvements
+# Combined vLLM/model image
 
-Scope: `feature/s3-model-artifacts`. This branch supplies deployment code; no AWS
-resources, model uploads or Kubernetes changes have been applied by the agent.
-See [the operating guide](model-store/README.md) for preparation and deployment.
+The S3 model-artifact proposal is replaced by one image containing vLLM and the
+pinned model weights. See [ecr/README.md](ecr/README.md) for the operating steps.
 
 | What changed | Change code | Purpose | What could be next |
 | --- | --- | --- | --- |
-| Private, encrypted, versioned artifact bucket | [`model-store/main.tf`](model-store/main.tf): public access blocked, ACLs disabled, SSE-S3, TLS-only policy, destruction guards | Store weights separately from serving nodes and retain recoverable versions | Remote state, object-level audit events, optional customer-managed KMS encryption |
-| Pinned model preparation and Terraform uploads | [`prepare_model.py`](model-store/prepare_model.py), `aws_s3_object.files` and `aws_s3_object.manifest` | Upload the configured Qwen snapshot from a full upstream commit; publish a completion manifest after all files | Trusted artifact-publishing CI, artifact signing and malware/provenance checks |
-| Checksummed release identity and local verification | [`manifest.py`](model-store/manifest.py), content-addressed S3 prefixes, `verify-model` init container | Reject changed manifests, corrupted/missing weights, unexpected files and path traversal before serving | Benchmark verification/startup latency; retain signed release evidence |
-| S3 gateway endpoint | [`vpc/s3-endpoint.tf`](vpc/s3-endpoint.tf), VPC endpoint output | Route model transfers from private subnets without NAT data processing | STS interface endpoint if private credential exchange is needed; carefully scoped shared endpoint policy |
-| Read-only, endpoint-scoped IRSA | [`vllm/model-storage.tf`](vllm/model-storage.tf) | Allow only the active release's object reads and file-prefix listing, with exact cluster/service-account/audience trust | Verify CloudTrail role assumptions and negative-access cases after deployment |
-| AWS identity restricted to the downloader | Explicit projected token and environment in [`vllm/main.tf`](vllm/main.tf) | Keep the verifier and serving process free of mounted AWS credentials and Kubernetes API tokens | Admission policies restricting who may deploy with this ServiceAccount; runtime network isolation |
-| Offline local serving with stable API name | Init download/verification, read-only model mount, `--served-model-name`, offline environment, disk reservations | Serve from verified artifacts while preserving llm-d/client model selection | Node-local prewarming or persistent caches for larger fleets; GPU and disk capacity tests |
-| Release retention and rollback guidance | `releases`/`active_release`, destruction guards, [`model-store/README.md`](model-store/README.md) | Keep previous declared releases while promoting a selected release | Bounded old/new reader-policy overlap for stricter rollout availability; controlled artifact retirement |
+| Private ECR repository | [`ecr/main.tf`](ecr/main.tf): immutable tags, encryption, push scanning and untagged-image cleanup | Store the engine and weights as one versioned release | Enforce scan acceptance in trusted publishing CI |
+| Combined engine/model image | [`ecr/image/Dockerfile`](ecr/image/Dockerfile), [`release.json`](ecr/image/release.json) | Include the exact model commit in a digest-pinned vLLM base; serve offline | Image signing/provenance and measured build/pull times |
+| Explicit publishing | [`ecr/image/publish.py`](ecr/image/publish.py) | Build for the x86_64 GPU fleet and push a new immutable tag without Terraform provisioners | CI with a short-lived publisher identity |
+| Private image pulls | [`vpc/ecr-endpoints.tf`](vpc/ecr-endpoints.tf), [`vpc/s3-endpoint.tf`](vpc/s3-endpoint.tf) | Provide ECR API/registry endpoints and the required S3 gateway route for layers | Endpoint-cost review and tighter policies if the shared VPC needs them |
+| Digest-pinned deployment | [`vllm/image.tf`](vllm/image.tf), [`vllm/main.tf`](vllm/main.tf) | Resolve the published release to a digest and serve local weights with the existing API name | GPU smoke checks and rollout/cold-start measurements |
+| Unprivileged application identity | Dedicated vLLM ServiceAccount with no AWS role or mounted API token | Kubelet uses node permissions to pull the complete image; serving needs no AWS API access | Review node-role permissions and add workload network isolation separately |
+
+No Terraform commands, image builds/pushes, or deployments were executed by the
+agent. No tests directory is included. Existing S3 artifacts/state, if you created
+them separately, require a deliberate migration; see the operating guide.
