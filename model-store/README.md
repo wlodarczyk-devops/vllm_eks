@@ -189,14 +189,6 @@ probes begin; Deployment progress and rollout timeouts must include them.
 
 ## Validation
 
-```bash
-# Integrity tests use tiny fixtures, with no AWS or Hub requests.
-python3 -m unittest discover -s tests -p test_model_artifacts.py -v
-# All tests, including HCL/credential-isolation contracts:
-python3 -m pip install python-hcl2==7.3.1
-python3 -m unittest discover -s tests -v
-```
-
 Before promotion, verify role assumption in CloudTrail, successful S3 reads through
 the endpoint, rejection of reads outside the prefix/endpoint, missing credentials
 in the serving container, a real completion with the existing API model name, and
