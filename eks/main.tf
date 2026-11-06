@@ -24,7 +24,11 @@ module "eks" {
     coredns    = {}
     kube-proxy = {}
     vpc-cni = {
-      before_compute = true
+      before_compute           = true
+      service_account_role_arn = module.vpc_cni_irsa.arn
+      configuration_values = jsonencode({
+        enableNetworkPolicy = "true"
+      })
     }
   }
 

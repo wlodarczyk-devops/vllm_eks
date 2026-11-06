@@ -109,7 +109,7 @@ What it creates:
 | Component | Details |
 |---|---|
 | Cluster | `vllm-eks`, Kubernetes `1.37`, in the private subnets. IRSA (OIDC provider) enabled. The identity that runs `apply` gets cluster-admin. |
-| Add-ons | `vpc-cni` (installed before nodes), `coredns`, `kube-proxy` |
+| Add-ons | `vpc-cni` (installed before nodes, dedicated IRSA role for `kube-system:aws-node`), `coredns`, `kube-proxy` |
 | Node group `system` | `t3.medium`, 1 node (scales 1–2), `AL2023_x86_64_STANDARD` AMI. Runs CoreDNS and other add-ons. |
 | Node group `gpu` | Up to 2 nodes (scales 0–2), one per vLLM replica; Cluster Autoscaler adds a node for each `Pending` replica. `AL2023_x86_64_NVIDIA` AMI (NVIDIA driver preinstalled), 100 GiB gp3 disk for the vLLM image and model. Labels `nvidia.com/gpu.present=true` and `k8s.amazonaws.com/accelerator=nvidia` (Cluster Autoscaler's GPU label), taint `nvidia.com/gpu=true:NoSchedule` so only GPU workloads run there. DaemonSets like `kube-proxy` and `vpc-cni` tolerate all taints and run on every node. |
 | NVIDIA device plugin | Helm chart `0.20.1` in `kube-system`. Makes `nvidia.com/gpu` a resource pods can request. |
@@ -126,6 +126,30 @@ GPU instance types are tried in order, in every AZ, until one has capacity:
 GPU capacity in `eu-central-1` is often short. If node creation fails with `InsufficientInstanceCapacity`, retry later or add more types to `gpu_instance_types`.
 
 Module: [`terraform-aws-modules/eks/aws`](https://registry.terraform.io/modules/terraform-aws-modules/eks/aws) `21.29.0`.
+
+#### VPC CNI IAM identity: first migration step
+
+[`eks/vpc-cni-irsa.tf`](eks/vpc-cni-irsa.tf) creates a dedicated role with
+the IAM module's IPv4 VPC CNI policy. Its trust policy permits only this cluster's
+`kube-system:aws-node` service account, with the STS audience. The managed VPC CNI
+add-on receives this role through `service_account_role_arn`; no separate service
+account resource is needed. The IAM module version matches the existing
+Cluster Autoscaler integration.
+
+Node-role CNI permissions remain attached during this step. After deployment,
+verify the `aws-node` service account annotation, the role's trust/policy attachment,
+and that every running `aws-node` pod has `AWS_ROLE_ARN` and
+`AWS_WEB_IDENTITY_TOKEN_FILE` configured. Existing pods may need a controlled
+restart to receive the IRSA settings. Confirm successful web-identity role
+assumption in CloudTrail and test pod IP allocation, including on a new node.
+Working networking alone is insufficient evidence while node-role permissions
+remain available as a fallback.
+
+Removing CNI permissions from node roles is a separate follow-up after those
+checks pass. The add-on also sets `enableNetworkPolicy = "true"` to enable
+NetworkPolicy enforcement. Traffic restrictions require separate Kubernetes
+`NetworkPolicy` resources; enabling the feature alone does not isolate pods.
+See [AWS's VPC CNI IRSA guidance](https://docs.aws.amazon.com/eks/latest/userguide/cni-iam-role.html).
 
 Check the result:
 
