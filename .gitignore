@@ -3,3 +3,10 @@
 *.tfstate.*
 *.tfplan
 crash.log
+
+# Local Python tooling
+.venv/
+__pycache__/
+
+# Model publisher release-file staging
+models/*.json.tmp

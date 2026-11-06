@@ -1,0 +1,8 @@
+ARG DOWNLOADER_BASE_IMAGE
+FROM ${DOWNLOADER_BASE_IMAGE}
+USER root
+# Explicit tools for SHA-256 verification and extraction; build runs outside EKS.
+RUN yum install -y tar gzip \
+    && (command -v sha256sum >/dev/null || yum install -y --allowerasing coreutils) \
+    && yum clean all && rm -rf /var/cache/yum
+USER 2000:0

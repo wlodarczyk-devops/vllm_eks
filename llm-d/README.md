@@ -20,7 +20,7 @@ client ──► Service llm-d-epp :80 (ClusterIP)
 - **InferencePool `llm-d`** (Gateway API Inference Extension CRD): selects the model server pods (`app=vllm`, port 8000) and points to the EPP. The pool, the EPP and the vLLM pods must be in the same namespace, so everything runs in `vllm`.
 - **EPP (Endpoint Picker)**: watches the pool's pods, scrapes their vLLM metrics, keeps an approximate index of which prompt prefixes each pod has cached, and picks a pod per request.
 - **Envoy** runs as a sidecar in the EPP pod. No Gateway, HTTPRoute or gateway controller is needed.
-- The plain `Service vllm` (round-robin) still exists, so both can be compared.
+- The plain `Service vllm` (standard Service balancing) still exists, so both can be compared.
 
 Optimized Baseline scheduling (from `values/optimized-baseline.values.yaml`):
 
@@ -78,7 +78,7 @@ $(terraform output -raw port_forward)                  # keep running: localhost
 eval "$(terraform output -raw test_request)"           # in another terminal
 ```
 
-### Compare routing: llm-d vs round-robin
+### Compare routing: llm-d vs plain Service
 
 Send the same long-prefix prompt several times and count which vLLM pod served each request (each pod logs `POST /v1/chat/completions`):
 
@@ -93,7 +93,12 @@ for p in $(kubectl -n vllm get pods -l app=vllm -o name); do
 done
 ```
 
-Expected with llm-d: most or all requests on the same pod (prefix-cache affinity). Repeat through the plain Service (`kubectl -n vllm port-forward svc/vllm 8000:8000`, port 8000) to see them spread across both pods. vLLM's `/metrics` on each pod also shows its prefix-cache hits (`grep prefix_cache`).
+Repeated prefixes may favor the same pod; compare per-pod requests and prefix-cache
+hits in `/metrics`. To compare Service load distribution, run an in-cluster client
+against the router and plain Service DNS addresses. `kubectl port-forward svc/vllm`
+selects one pod for the session and cannot demonstrate distribution across both
+replicas. Kubernetes Service balancing is connection-based, so account for HTTP
+connection reuse in the comparison.
 
 ## Remove
 

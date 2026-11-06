@@ -3,11 +3,17 @@
 Terraform for serving an open-weight LLM with [vLLM](https://docs.vllm.ai) on a GPU node of an Amazon EKS cluster in `eu-central-1`.
 
 The model, `Qwen/Qwen3-4B-Instruct-2507`, is served through vLLM's OpenAI-compatible API.
+Engine/downloader images are stored in private ECR; model weights are a versioned
+S3 archive. One init container downloads and verifies the selected model before
+vLLM serves local files offline. See [ecr/README.md](ecr/README.md) and
+[models/README.md](models/README.md) for publishing and deployment.
 
 ## Architecture
 
 ```text
 AWS eu-central-1
+├── ECR vllm-eks-vllm  engine/downloader images               (artifact infra repo)
+├── S3 vllm-eks-models-<account>-eu-central-1  versioned weights  (artifact infra repo)
 └── VPC vllm-eks  10.0.0.0/16                                   (vpc/)
     ├── public subnets  ×3 AZ  10.0.48.0/24, 10.0.49.0/24, 10.0.50.0/24   ← single NAT gateway
     └── private subnets ×3 AZ  10.0.0.0/20,  10.0.16.0/20, 10.0.32.0/20
@@ -18,7 +24,7 @@ AWS eu-central-1
             │     └── nvidia-device-plugin (kube-system)
             ├── namespace vllm                                  (vllm/)
             │     ├── Deployment vllm  2 × Qwen3-4B-Instruct-2507 (1 per GPU node), fp16, 16k context
-            │     └── Service vllm     ClusterIP :8000           ← round-robin
+            │     └── Service vllm     ClusterIP :8000           ← connection balancing
             ├── namespace vllm: llm-d Router (PoC)               (llm-d/)
             │     ├── Deployment llm-d-epp  EPP + Envoy sidecar  (system node)
             │     ├── Service llm-d-epp     ClusterIP :80        ← prefix-cache/load-aware
@@ -32,18 +38,48 @@ AWS eu-central-1
 ```text
 .
 ├── vpc/                 # Terraform: VPC, subnets, NAT gateway, EKS subnet tags
+├── ecr/                 # Engine/downloader publishing and release selection
+├── models/              # Model publishing, release PR helper and release selection
 ├── eks/                 # Terraform: EKS cluster, node groups, NVIDIA device plugin
 ├── vllm/                # Terraform: vLLM namespace, Deployment, Service
-│   └── README.md        # every vLLM option, explained
+│   └── README.md        # deployment settings and selected tuning options
 ├── llm-d/               # Terraform: llm-d Router PoC (InferencePool CRD, router Helm chart)
 │   └── README.md        # how llm-d works and how to test it
 ├── .github/workflows/
+│   ├── publish-model.yml  # Manual OIDC model upload, then release PR
 │   └── claude-review.yml  # Claude PR review on "@claude" comments
 ├── CLAUDE.md            # guidelines for Claude Code in this repo
 └── README.md
 ```
 
-Each Terraform folder is a separate stack with the same files:
+## What is still needed
+
+| Component | Decision | Reason |
+| --- | --- | --- |
+| `vpc/` | Keep | Networking, NAT for remaining external dependencies, and private ECR/S3/STS access |
+| `eks/` | Keep | Cluster, CPU/GPU nodes, NVIDIA plugin, CNI identity and autoscaling |
+| `ecr/` | Keep publishing code | ECR infrastructure is in the artifact repository |
+| `models/` | Keep publishing code | Upload script, PR helper, and selected version/checksum; S3 infrastructure is separate |
+| `vllm/` | Keep | Model-reader IRSA, init download, GPU serving and Service |
+| `llm-d/` and its values files | Keep for the selected routing design | Cache/load-aware routing; the plain vLLM Service can serve without this optional router |
+| `versions.tf`, variables, tfvars, outputs and lockfiles | Keep in each stack | Separate state roots have their own provider/configuration contracts; repeated filenames are intentional |
+| Publishing scripts and release JSON files | Keep | Terraform creates infrastructure; these publish and select the actual images/model |
+| `Dockerfile.downloader` and `.dockerignore` | Keep | Build only the archive-download tool image; see [why it exists](ecr/README.md#why-dockerfiledownloader-remains) |
+| `CLAUDE.md` and the Claude review workflow | Optional developer tooling, kept | Used for the repository's existing authoring/review workflow; not a serving dependency |
+
+The source folder `models/` contains code/configuration, not weights. The S3 archive
+holds the durable weights; `/models/model` inside a pod is the temporary extracted
+copy. These are three different locations.
+
+The engine Dockerfile and test directory have already been removed. The copied
+upstream CLI dump and duplicate deployment model-name setting are also removed;
+`models/release.json` is the source of the served model name. Keep Terraform state
+files for existing resources. Ignored `.terraform/` directories are downloaded
+caches, not obsolete application code or a substitute for state.
+
+S3/ECR and GitHub publisher roles are owned by [llm-artifact-infra](https://github.com/wlodarczyk-devops/llm-artifact-infra). Securely migrate any existing states before applying from the new location. This code change moves no state or AWS resources.
+
+Each remaining Terraform folder is a separate stack with the same files:
 
 | File | Content |
 |---|---|
@@ -159,6 +195,16 @@ kubectl -n kube-system get pods -o wide        # CoreDNS on system nodes, device
 kubectl describe node -l nvidia.com/gpu.present=true | grep nvidia.com/gpu   # nvidia.com/gpu: 1
 ```
 
+### Publish images and model weights (before vLLM)
+
+Provision ECR, S3 and publisher IAM in [llm-artifact-infra](https://github.com/wlodarczyk-devops/llm-artifact-infra) first. Publish the engine and downloader images following
+[`ecr/README.md`](ecr/README.md), then publish the
+pinned snapshot following [`models/README.md`](models/README.md). Image releases
+are in `ecr/image/release.json`; the model version/checksum is in
+`models/release.json`. The VPC provides ECR API/registry and STS interface endpoints
+plus one shared S3 gateway endpoint. Publish both images and the model before
+planning vLLM. No per-file model objects or cross-stack local state are needed.
+
 ### 3. vLLM
 
 ```bash
@@ -167,11 +213,11 @@ terraform init
 terraform apply
 ```
 
-The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. Every pod start downloads the ~8 GB model (the first start on a node also pulls the ~11 GB image), which takes several minutes. `apply` waits for the pod to become ready, up to `rollout_timeout` (60 min). The startup probe separately gives vLLM `startup_timeout_seconds` (20 min) after the container starts before restarting it.
+The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. New nodes pull the engine/downloader images from ECR. An init container downloads the pinned S3 model version and verifies it before vLLM loads local weights offline. Image pulls, model preparation and warm-up can take several minutes. `apply` waits for the pod to become ready, up to `rollout_timeout` (60 min). The startup probe separately gives vLLM `startup_timeout_seconds` (20 min) after the container starts before restarting it.
 
 | Setting | Value |
 |---|---|
-| Image | `vllm/vllm-openai:v0.33.0` |
+| Image | Separate engine/downloader images in private ECR, resolved from immutable release tags to digests |
 | Configuration | Values set as `SERVE_*` container environment variables, referenced in `args` as `$(SERVE_...)` (see [`vllm/README.md`](vllm/README.md#how-options-are-set-in-this-repository)) |
 | API server | `--host 0.0.0.0 --port 8000`. `port` also sets the container port, Service and probes. Service env injection is disabled (`enable_service_links = false`) so the Service named `vllm` can't set `VLLM_PORT`. |
 | Model | `Qwen/Qwen3-4B-Instruct-2507`: Apache 2.0, not gated (no Hugging Face token), 4.0B parameters |
@@ -180,8 +226,8 @@ The stack finds the cluster by name (`cluster_name`) through the AWS API, so it 
 | GPU memory | `--gpu-memory-utilization 0.90` |
 | Placement | Node selector `nvidia.com/gpu.present=true`, toleration for the GPU taint, 1 × `nvidia.com/gpu` |
 | Resources | CPU request 2, memory request 8Gi / limit 12Gi, `/dev/shm` 2Gi |
-| Model storage | `emptyDir` volume at `/home/vllm` (`home_size` 30Gi): the model is downloaded to `/home/vllm/.cache/huggingface` on every pod start and deleted when the pod stops. `/tmp` is a separate `emptyDir` (`tmp_size` 5Gi). |
-| Security | Namespace enforces the `restricted` [Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/). The pod runs as the image's non-root `vllm` user (UID 2000, GID 0) with a read-only root filesystem, no privilege escalation, all capabilities dropped, the `RuntimeDefault` seccomp profile and no service account token. Writable paths: `/home/vllm`, `/tmp`, `/dev/shm`. |
+| Model storage | Weights are extracted from the versioned S3 archive into `/models/model` and mounted read-only by vLLM. `/home/vllm` (`home_size` 30Gi) holds writable runtime caches; `/tmp` is a separate `emptyDir` (`tmp_size` 5Gi). |
+| Security | Namespace enforces the `restricted` [Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/). The pod runs as the image's non-root `vllm` user (UID 2000, GID 0) with a read-only root filesystem, no privilege escalation, all capabilities dropped, the `RuntimeDefault` seccomp profile and no automatically mounted Kubernetes API token. Only the downloader mounts an STS-audience token. Writable paths: `/home/vllm`, `/tmp`, `/dev/shm`. |
 | Replicas | 2 (`replicas`), one per GPU node |
 | Probes | Startup probe on `/health` (20 min budget), liveness on `/health`, readiness on `/v1/models` (llm-d recommendation) |
 | Updates | Rolling update with `maxSurge 0` / `maxUnavailable 1`: one pod is replaced at a time, because there's no spare GPU for an extra pod |
@@ -190,7 +236,7 @@ The stack finds the cluster by name (`cluster_name`) through the AWS API, so it 
 
 Why this model fits: on the smallest GPU (T4, 16 GiB), the fp16 weights take ~7.5 GiB. Each token in the KV cache takes ~144 KiB. With 90% of GPU memory in use, ~4.6 GiB (~33k tokens) is left for the KV cache, so 2 full 16k-token requests fit at once. On A10G/L4 there's ~11.5 GiB (~84k tokens).
 
-To change the model or tune vLLM, see [`vllm/README.md`](vllm/README.md). It covers every `vllm serve` option.
+To change the model or tune vLLM, see [`vllm/README.md`](vllm/README.md). It explains deployment settings and links to the full upstream CLI reference.
 
 ### 4. llm-d Router (PoC)
 
@@ -225,13 +271,14 @@ Troubleshooting:
 
 ```bash
 kubectl -n vllm get pods -o wide
-kubectl -n vllm logs deploy/vllm -f           # model download, KV cache size, request stats
+kubectl -n vllm logs deploy/vllm -c download-model  # S3 download/checksum/extraction
+kubectl -n vllm logs deploy/vllm -c vllm -f         # engine load, KV cache, request stats
 kubectl -n vllm describe pod -l app=vllm      # scheduling problems, e.g. no GPU node
 ```
 
 ## Cost and teardown
 
-The GPU node, the NAT gateway and the EKS control plane are billed per hour while they exist. Destroy everything when you're done, in reverse order:
+GPU nodes, NAT, EKS and interface endpoints incur recurring charges. Tear down compute/network resources in reverse order when finished; ECR and S3 releases are retained separately for rollback:
 
 ```bash
 cd llm-d && terraform destroy
@@ -255,15 +302,19 @@ kubectl -n kube-system get configmap cluster-autoscaler-status -o yaml   # per n
 
 ## Configuration
 
-All settings are variables. Change values in the stack's `terraform.tfvars` and run `terraform apply`. Settings that must match across stacks:
+Infrastructure and deployment settings are stack variables in `terraform.tfvars`.
+Image selection lives in `ecr/image/release.json`; model identity/version/checksum
+live in `models/release.json`. Settings that must match across stacks:
 
 | Setting | Must be the same in |
 |---|---|
-| Cluster name `vllm-eks` | `vpc/` `cluster_name` (subnet tags), `eks/` `cluster_name`, `vllm/` `cluster_name`, `llm-d/` `cluster_name` |
+| Cluster name `vllm-eks` | `vpc/` `cluster_name` (subnet tags), `eks/`, `vllm/`, `llm-d/` and artifact repository stacks' `cluster_name` |
 | Region `eu-central-1` | `region` in all stacks, and `azs` in `vpc/` |
 | GPU taint and label | `eks/main.tf` node group and `vllm/main.tf` toleration and node selector; `llm-d/main.tf` avoids nodes with the label |
 | vLLM namespace, labels, port | `vllm/` (`namespace`, `app=vllm`, `port`) and `llm-d/` (`namespace`, `model_server_labels`, `model_server_port`) |
 | GPU nodes vs vLLM replicas | `eks/` `gpu_max_size` ≥ `vllm/` `replicas` (one GPU per pod) |
+
+The ECR repository and model bucket retain releases and have destruction guards; review their lifecycles separately from routine cluster teardown.
 
 Secrets never go into `terraform.tfvars`. Pass them as environment variables (`TF_VAR_<name>`), like the public IP above.
 

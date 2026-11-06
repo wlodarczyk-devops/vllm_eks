@@ -33,16 +33,6 @@ variable "prestop_sleep_seconds" {
   type        = number
 }
 
-variable "vllm_version" {
-  description = "Tag of the vllm/vllm-openai image"
-  type        = string
-}
-
-variable "model" {
-  description = "Hugging Face model ID to serve"
-  type        = string
-}
-
 variable "host" {
   description = "Address the vLLM API server listens on inside the container"
   type        = string
@@ -100,7 +90,7 @@ variable "shm_size" {
 }
 
 variable "home_size" {
-  description = "Size limit of the writable home directory (model files and vLLM/Triton/torch caches)"
+  description = "Size limit of the writable home directory for vLLM/Triton/torch runtime caches"
   type        = string
 }
 
@@ -110,7 +100,7 @@ variable "tmp_size" {
 }
 
 variable "startup_timeout_seconds" {
-  description = "Time allowed after container start for model download and load before the pod is restarted (multiple of 10)"
+  description = "Time allowed after container start for engine load/warm-up; excludes init download (multiple of 10)"
   type        = number
 }
 
