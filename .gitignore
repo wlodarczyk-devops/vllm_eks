@@ -8,3 +8,6 @@ crash.log
 model-store/artifacts/
 .venv/
 __pycache__/
+
+# Model publisher release-file staging
+models/*.json.tmp

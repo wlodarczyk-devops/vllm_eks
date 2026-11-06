@@ -36,7 +36,7 @@ variable "prestop_sleep_seconds" {
 
 
 variable "model" {
-  description = "Model name advertised by the API; must match ecr/image/release.json"
+  description = "Model name advertised by the API; must match models/release.json"
   type        = string
 }
 

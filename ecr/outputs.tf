@@ -1,5 +1,5 @@
 output "repository_url" {
-  description = "Push the combined vLLM/model image here before deploying vLLM"
+  description = "Push engine and downloader images here before deploying vLLM"
   value       = aws_ecr_repository.vllm.repository_url
 }
 

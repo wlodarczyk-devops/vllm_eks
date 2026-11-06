@@ -1,5 +1,5 @@
-# ECR stores image layers in S3. Private ECR pulls require this gateway endpoint
-# as well as ecr.api and ecr.dkr. No application model bucket is needed.
+# One shared gateway endpoint routes both ECR layer pulls and model downloads.
+# Keep access to ECR's regional layer bucket if tightening the endpoint policy.
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = module.vpc.vpc_id
   service_name      = "com.amazonaws.${var.region}.s3"

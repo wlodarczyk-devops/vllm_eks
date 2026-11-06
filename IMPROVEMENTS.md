@@ -1,17 +1,18 @@
-# Combined vLLM/model image
+# ECR engine images and S3 model releases
 
-The S3 model-artifact proposal is replaced by one image containing vLLM and the
-pinned model weights. See [ecr/README.md](ecr/README.md) for the operating steps.
+The engine and weights have independent releases. See [ecr/README.md](ecr/README.md)
+and [models/README.md](models/README.md) for publishing and deployment.
 
 | What changed | Change code | Purpose | What could be next |
 | --- | --- | --- | --- |
-| Private ECR repository | [`ecr/main.tf`](ecr/main.tf): immutable tags, encryption, push scanning and untagged-image cleanup | Store the engine and weights as one versioned release | Enforce scan acceptance in trusted publishing CI |
-| Combined engine/model image | [`ecr/image/Dockerfile`](ecr/image/Dockerfile), [`release.json`](ecr/image/release.json) | Include the exact model commit in a digest-pinned vLLM base; serve offline | Image signing/provenance and measured build/pull times |
-| Explicit publishing | [`ecr/image/publish.py`](ecr/image/publish.py) | Build for the x86_64 GPU fleet and push a new immutable tag without Terraform provisioners | CI with a short-lived publisher identity |
-| Private image pulls | [`vpc/ecr-endpoints.tf`](vpc/ecr-endpoints.tf), [`vpc/s3-endpoint.tf`](vpc/s3-endpoint.tf) | Provide ECR API/registry endpoints and the required S3 gateway route for layers | Endpoint-cost review and tighter policies if the shared VPC needs them |
-| Digest-pinned deployment | [`vllm/image.tf`](vllm/image.tf), [`vllm/main.tf`](vllm/main.tf) | Resolve the published release to a digest and serve local weights with the existing API name | GPU smoke checks and rollout/cold-start measurements |
-| Unprivileged application identity | Dedicated vLLM ServiceAccount with no AWS role or mounted API token | Kubelet uses node permissions to pull the complete image; serving needs no AWS API access | Review node-role permissions and add workload network isolation separately |
+| Separate engine/downloader images | [`ecr/image`](ecr/image), digest lookups in [`vllm/image.tf`](vllm/image.tf) | Reuse engine images when only model weights change; both images pull privately | Scan acceptance and image signing in publishing CI |
+| Private versioned model bucket | [`models/main.tf`](models/main.tf) | Encrypt weights, block public access, retain versions and require TLS | Remote state, object data-event audit logging, optional SSE-KMS |
+| One model publisher | [`models/publish.py`](models/publish.py), [`models/release.json`](models/release.json) | Upload one archive and pin its exact S3 version/checksum without per-file Terraform resources | Trusted publishing CI and signed provenance |
+| Private image, model and identity paths | ECR/S3 endpoints plus STS in [`vpc/ecr-endpoints.tf`](vpc/ecr-endpoints.tf) | Keep ECR pulls, S3 downloads and regional IRSA credential exchange on AWS private paths | Endpoint cost review; scoped shared endpoint policies |
+| Exact-version, endpoint-scoped IRSA | [`vllm/model-storage.tf`](vllm/model-storage.tf) | Grant only GetObjectVersion on the selected archive/version via the S3 endpoint | Negative-access verification and bounded old/new-version overlap for upgrades |
+| One init container | [`vllm/main.tf`](vllm/main.tf) | Download, verify SHA-256 and extract before serving; mount identity only in the downloader | Measured startup budgets and persistent caching if needed |
+| Offline serving with read-only local weights | Model volume and offline settings in the deployment | Preserve the API model name and keep AWS tokens out of the serving container | Workload network isolation and GPU/capacity validation |
 
-No Terraform commands, image builds/pushes, or deployments were executed by the
-agent. No tests directory is included. Existing S3 artifacts/state, if you created
-them separately, require a deliberate migration; see the operating guide.
+No tests directory is included. Static parsing/format checks passed; deployment,
+image publishing and model uploading remain pending. No Terraform commands or
+AWS/Kubernetes mutations were run by the agent.

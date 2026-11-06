@@ -1,9 +1,10 @@
 # vLLM options
 
-The engine and pinned model weights now come from one private ECR image.
-See [ecr/README.md](../ecr/README.md) for publishing and private image pulls.
-The serving path is `/opt/model`; `--served-model-name` preserves the public API
-model name. The image release is defined in `ecr/image/release.json`.
+Engine/downloader images come from private ECR. One init container downloads the
+version-pinned S3 model and verifies its SHA-256 before serving from `/models/model`.
+See [ecr/README.md](../ecr/README.md) and [models/README.md](../models/README.md).
+`--served-model-name` preserves the public API name. Image and model releases are
+selected independently in `ecr/image/release.json` and `models/release.json`.
 
 
 Reference for every option of `vllm serve` in **vLLM v0.33.0** (the base version pinned by digest in `ecr/image/release.json`).
@@ -73,7 +74,7 @@ Values in the **This repo** column are what we pass today; "default" means we do
 
 | Option | Default | This repo | Explanation |
 |---|---|---|---|
-| `model` (positional) | `Qwen/Qwen3-0.6B` | `/opt/model` | Local weights/config/tokenizer included in the ECR image. Offline serving uses `--served-model-name Qwen/Qwen3-4B-Instruct-2507` for API compatibility. |
+| `model` (positional) | `Qwen/Qwen3-0.6B` | `/models/model` | Read-only local weights prepared from the selected S3 archive version. Offline serving uses `--served-model-name Qwen/Qwen3-4B-Instruct-2507` for API compatibility. |
 | `--dtype` | `auto` | `half` | Precision of weights and activations. `auto` uses the model's own precision (bf16 for Qwen3). `half` = fp16. The T4 has no bf16 support, so we force fp16 on every node type for consistent behaviour. On g5/g6 you could switch to `bfloat16`. |
 | `--quantization`, `-q` | auto-detected | default | Quantization method of the weights (e.g. `awq`, `gptq`, `fp8`). Normally read from the model's config, so you only set it to override. Use it with a quantized model to fit a bigger model on the same GPU. |
 | `--revision` | latest | default | Git revision (branch, tag or commit) of the model on Hugging Face. Pin a commit for reproducible deployments. |

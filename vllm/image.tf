@@ -19,5 +19,11 @@ resource "kubernetes_service_account_v1" "vllm" {
     namespace = kubernetes_namespace_v1.vllm.metadata[0].name
   }
   automount_service_account_token = false
-  # No IRSA role: the node's kubelet pulls the image before this process starts.
+  # No role annotation: mount the explicit STS token only in the download init
+  # container, rather than letting the webhook inject it into every container.
+}
+
+data "aws_ecr_image" "downloader" {
+  repository_name = data.aws_ecr_repository.vllm.name
+  image_tag       = local.image_release.downloader_tag
 }

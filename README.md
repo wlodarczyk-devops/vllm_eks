@@ -3,15 +3,17 @@
 Terraform for serving an open-weight LLM with [vLLM](https://docs.vllm.ai) on a GPU node of an Amazon EKS cluster in `eu-central-1`.
 
 The model, `Qwen/Qwen3-4B-Instruct-2507`, is served through vLLM's OpenAI-compatible API.
-The engine and pinned model weights are packaged in one private ECR image.
-See [ecr/README.md](ecr/README.md) for repository creation, image publishing,
-private endpoints and deployment order.
+Engine/downloader images are stored in private ECR; model weights are a versioned
+S3 archive. One init container downloads and verifies the selected model before
+vLLM serves local files offline. See [ecr/README.md](ecr/README.md) and
+[models/README.md](models/README.md) for publishing and deployment.
 
 ## Architecture
 
 ```text
 AWS eu-central-1
-├── ECR vllm-eks-vllm  combined engine/model image               (ecr/)
+├── ECR vllm-eks-vllm  engine/downloader images               (ecr/)
+├── S3 vllm-eks-models-<account>-eu-central-1  versioned weights  (models/)
 └── VPC vllm-eks  10.0.0.0/16                                   (vpc/)
     ├── public subnets  ×3 AZ  10.0.48.0/24, 10.0.49.0/24, 10.0.50.0/24   ← single NAT gateway
     └── private subnets ×3 AZ  10.0.0.0/20,  10.0.16.0/20, 10.0.32.0/20
@@ -36,7 +38,8 @@ AWS eu-central-1
 ```text
 .
 ├── vpc/                 # Terraform: VPC, subnets, NAT gateway, EKS subnet tags
-├── ecr/                 # Terraform: private image repository; Docker build/publish assets
+├── ecr/                 # Terraform: private engine/downloader image repository
+├── models/              # Terraform: private model bucket; one model publishing script
 ├── eks/                 # Terraform: EKS cluster, node groups, NVIDIA device plugin
 ├── vllm/                # Terraform: vLLM namespace, Deployment, Service
 │   └── README.md        # every vLLM option, explained
@@ -164,13 +167,15 @@ kubectl -n kube-system get pods -o wide        # CoreDNS on system nodes, device
 kubectl describe node -l nvidia.com/gpu.present=true | grep nvidia.com/gpu   # nvidia.com/gpu: 1
 ```
 
-### Publish the combined image (before vLLM)
+### Publish images and model weights (before vLLM)
 
-Create the ECR repository, then publish the image following
-[`ecr/README.md`](ecr/README.md). The release definition is
-[`ecr/image/release.json`](ecr/image/release.json). The VPC stack also creates
-`ecr.api`/`ecr.dkr` interface endpoints and an S3 gateway endpoint for image layers.
-The vLLM stack requires the selected image to have been published before planning.
+Create/publish the engine and downloader images following
+[`ecr/README.md`](ecr/README.md), then create the model bucket and publish the
+pinned snapshot following [`models/README.md`](models/README.md). Image releases
+are in `ecr/image/release.json`; the model version/checksum is in
+`models/release.json`. The VPC provides ECR API/registry and STS interface endpoints
+plus one shared S3 gateway endpoint. Publish both images and the model before
+planning vLLM. No per-file model objects or cross-stack local state are needed.
 
 ### 3. vLLM
 
@@ -180,11 +185,11 @@ terraform init
 terraform apply
 ```
 
-The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. New nodes pull the combined vLLM/model image from ECR; vLLM then loads the included weights offline. The pull and warm-up can take several minutes. `apply` waits for the pod to become ready, up to `rollout_timeout` (60 min). The startup probe separately gives vLLM `startup_timeout_seconds` (20 min) after the container starts before restarting it.
+The stack finds the cluster by name (`cluster_name`) through the AWS API, so it doesn't read the EKS state. New nodes pull the engine/downloader images from ECR. An init container downloads the pinned S3 model version and verifies it before vLLM loads local weights offline. Image pulls, model preparation and warm-up can take several minutes. `apply` waits for the pod to become ready, up to `rollout_timeout` (60 min). The startup probe separately gives vLLM `startup_timeout_seconds` (20 min) after the container starts before restarting it.
 
 | Setting | Value |
 |---|---|
-| Image | Combined vLLM + model image in private ECR, resolved from the immutable release tag to a digest |
+| Image | Separate engine/downloader images in private ECR, resolved from immutable release tags to digests |
 | Configuration | Values set as `SERVE_*` container environment variables, referenced in `args` as `$(SERVE_...)` (see [`vllm/README.md`](vllm/README.md#how-options-are-set-in-this-repository)) |
 | API server | `--host 0.0.0.0 --port 8000`. `port` also sets the container port, Service and probes. Service env injection is disabled (`enable_service_links = false`) so the Service named `vllm` can't set `VLLM_PORT`. |
 | Model | `Qwen/Qwen3-4B-Instruct-2507`: Apache 2.0, not gated (no Hugging Face token), 4.0B parameters |
@@ -193,8 +198,8 @@ The stack finds the cluster by name (`cluster_name`) through the AWS API, so it 
 | GPU memory | `--gpu-memory-utilization 0.90` |
 | Placement | Node selector `nvidia.com/gpu.present=true`, toleration for the GPU taint, 1 × `nvidia.com/gpu` |
 | Resources | CPU request 2, memory request 8Gi / limit 12Gi, `/dev/shm` 2Gi |
-| Model storage | Weights are included in the read-only image at `/opt/model`. `/home/vllm` (`home_size` 30Gi) holds writable runtime caches; `/tmp` is a separate `emptyDir` (`tmp_size` 5Gi). |
-| Security | Namespace enforces the `restricted` [Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/). The pod runs as the image's non-root `vllm` user (UID 2000, GID 0) with a read-only root filesystem, no privilege escalation, all capabilities dropped, the `RuntimeDefault` seccomp profile and no service account token. Writable paths: `/home/vllm`, `/tmp`, `/dev/shm`. |
+| Model storage | Weights are extracted from the versioned S3 archive into `/models/model` and mounted read-only by vLLM. `/home/vllm` (`home_size` 30Gi) holds writable runtime caches; `/tmp` is a separate `emptyDir` (`tmp_size` 5Gi). |
+| Security | Namespace enforces the `restricted` [Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/). The pod runs as the image's non-root `vllm` user (UID 2000, GID 0) with a read-only root filesystem, no privilege escalation, all capabilities dropped, the `RuntimeDefault` seccomp profile and no automatically mounted Kubernetes API token. Only the downloader mounts an STS-audience token. Writable paths: `/home/vllm`, `/tmp`, `/dev/shm`. |
 | Replicas | 2 (`replicas`), one per GPU node |
 | Probes | Startup probe on `/health` (20 min budget), liveness on `/health`, readiness on `/v1/models` (llm-d recommendation) |
 | Updates | Rolling update with `maxSurge 0` / `maxUnavailable 1`: one pod is replaced at a time, because there's no spare GPU for an extra pod |
@@ -278,7 +283,7 @@ All settings are variables. Change values in the stack's `terraform.tfvars` and 
 | vLLM namespace, labels, port | `vllm/` (`namespace`, `app=vllm`, `port`) and `llm-d/` (`namespace`, `model_server_labels`, `model_server_port`) |
 | GPU nodes vs vLLM replicas | `eks/` `gpu_max_size` ≥ `vllm/` `replicas` (one GPU per pod) |
 
-The ECR repository retains tagged releases and has a destruction guard; review its lifecycle separately from routine cluster teardown.
+The ECR repository and model bucket retain releases and have destruction guards; review their lifecycles separately from routine cluster teardown.
 
 Secrets never go into `terraform.tfvars`. Pass them as environment variables (`TF_VAR_<name>`), like the public IP above.
 
