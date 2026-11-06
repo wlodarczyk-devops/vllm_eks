@@ -146,7 +146,9 @@ Working networking alone is insufficient evidence while node-role permissions
 remain available as a fallback.
 
 Removing CNI permissions from node roles is a separate follow-up after those
-checks pass. NetworkPolicy enforcement is also a separate change.
+checks pass. The add-on also sets `enableNetworkPolicy = "true"` to enable
+NetworkPolicy enforcement. Traffic restrictions require separate Kubernetes
+`NetworkPolicy` resources; enabling the feature alone does not isolate pods.
 See [AWS's VPC CNI IRSA guidance](https://docs.aws.amazon.com/eks/latest/userguide/cni-iam-role.html).
 
 Check the result:
