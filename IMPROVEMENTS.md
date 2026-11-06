@@ -5,7 +5,7 @@ and [models/README.md](models/README.md) for publishing and deployment.
 
 | What changed | Change code | Purpose | What could be next |
 | --- | --- | --- | --- |
-| Separate engine/downloader images | [`ecr/image`](ecr/image), digest lookups in [`vllm/image.tf`](vllm/image.tf) | Reuse engine images when only model weights change; both images pull privately | Scan acceptance and image signing in publishing CI |
+| Separate engine/downloader images | [`ecr/image`](ecr/image), digest lookups in [`vllm/image.tf`](vllm/image.tf) | Mirror the official vLLM image without an engine build; build only the downloader; both images pull privately | Scan acceptance and image signing in publishing CI |
 | Private versioned model bucket | [`models/main.tf`](models/main.tf) | Encrypt weights, block public access, retain versions and require TLS | Remote state, object data-event audit logging, optional SSE-KMS |
 | One model publisher | [`models/publish.py`](models/publish.py), [`models/release.json`](models/release.json) | Upload one archive and pin its exact S3 version/checksum without per-file Terraform resources | Trusted publishing CI and signed provenance |
 | Private image, model and identity paths | ECR/S3 endpoints plus STS in [`vpc/ecr-endpoints.tf`](vpc/ecr-endpoints.tf) | Keep ECR pulls, S3 downloads and regional IRSA credential exchange on AWS private paths | Endpoint cost review; scoped shared endpoint policies |

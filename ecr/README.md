@@ -20,19 +20,26 @@ terraform apply
 cd ..
 ```
 
-With Docker Buildx, Python 3 and an AWS publishing identity:
+With Docker Engine API 1.46+ (for platform-specific pushes), Docker Buildx,
+Python 3 and an AWS publishing identity:
 
 ```bash
 python3 ecr/image/publish.py --region eu-central-1 --repository vllm-eks-vllm
 ```
 
-The script builds missing tags for `linux/amd64` and reuses existing immutable tags.
-Change the appropriate tag when changing a Dockerfile or base image. Updating only
-the S3 model does not require either image to be rebuilt. The deployment resolves
-both tags to digests. Review ECR scan results before promotion; the publisher does
+The script mirrors the digest-pinned official vLLM image for `linux/amd64` using
+pull/tag/push. There is no engine Dockerfile or engine build. The Kubernetes
+Deployment supplies its non-root identity, offline settings and model path.
+Only the downloader uses `Dockerfile.downloader` to install the required tools.
+Existing immutable tags are reused. Choose a new engine tag when changing the
+upstream image, or a new downloader tag when changing its Dockerfile/base.
+Updating only the S3 model requires no image publication. The deployment resolves
+both tags to digests. The mirrored engine is a single-platform manifest; its ECR
+digest can differ from the upstream multi-platform index, and index-level
+attestations are not copied by this flow. Review ECR scan results before promotion; the publisher does
 not enforce a vulnerability acceptance policy.
 
-The build machine needs internet access to pull Docker Hub bases and install the
+The publishing machine needs internet access to pull Docker Hub images and install the
 downloader's Linux packages. Docker login uses the normal credential store. Image
 pulls in EKS use the node role; the pinned EKS module already attaches ECR read
 permissions. vLLM does not receive ECR credentials or an image-pull Secret.

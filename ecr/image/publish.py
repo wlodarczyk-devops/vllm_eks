@@ -16,12 +16,12 @@ def main():
     options = parser.parse_args()
     release = json.loads((IMAGE_DIRECTORY / 'release.json').read_text())
     images = [
-        ('Dockerfile', 'VLLM_BASE_IMAGE', release['base_image'], release['image_tag']),
-        ('Dockerfile.downloader', 'DOWNLOADER_BASE_IMAGE', release['downloader_base_image'], release['downloader_tag']),
+        ('mirror', release['base_image'], release['image_tag']),
+        ('build', release['downloader_base_image'], release['downloader_tag']),
     ]
     if release['image_tag'] == release['downloader_tag']:
         parser.error('Engine and downloader require different release tags')
-    for _, _, base, tag in images:
+    for _, base, tag in images:
         if not re.search(r'@sha256:[0-9a-f]{64}$', base):
             parser.error('Base images must include SHA-256 digests')
         if tag == 'latest' or not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}', tag):
@@ -35,7 +35,7 @@ def main():
     password = subprocess.check_output(aws + ['get-login-password'])
     subprocess.run(['docker', 'login', '--username', 'AWS', '--password-stdin', registry], input=password, check=True)
     del password
-    for dockerfile, argument, base, tag in images:
+    for operation, base, tag in images:
         existing = subprocess.run(aws + ['describe-images', '--repository-name', options.repository,
                                         '--image-ids', f'imageTag={tag}', '--output', 'json'], capture_output=True, text=True)
         if existing.returncode == 0:
@@ -43,11 +43,19 @@ def main():
             continue
         if 'ImageNotFoundException' not in existing.stderr:
             raise RuntimeError(f'Cannot check release tag: {existing.stderr.strip()}')
-        subprocess.run([
-            'docker', 'buildx', 'build', '--platform', 'linux/amd64',
-            '--file', str(IMAGE_DIRECTORY / dockerfile), '--build-arg', f'{argument}={base}',
-            '--tag', f'{repository["repositoryUri"]}:{tag}', '--push', str(IMAGE_DIRECTORY),
-        ], check=True)
+        target = f'{repository["repositoryUri"]}:{tag}'
+        if operation == 'mirror':
+            # Copy the upstream engine without rebuilding or modifying its layers.
+            subprocess.run(['docker', 'image', 'pull', '--platform', 'linux/amd64', base], check=True)
+            subprocess.run(['docker', 'image', 'tag', base, target], check=True)
+            subprocess.run(['docker', 'image', 'push', '--platform', 'linux/amd64', target], check=True)
+        else:
+            subprocess.run([
+                'docker', 'buildx', 'build', '--platform', 'linux/amd64',
+                '--file', str(IMAGE_DIRECTORY / 'Dockerfile.downloader'),
+                '--build-arg', f'DOWNLOADER_BASE_IMAGE={base}',
+                '--tag', target, '--push', str(IMAGE_DIRECTORY),
+            ], check=True)
         print(f'Published {repository["repositoryUri"]}:{tag}')
     print('Review ECR scan results before deployment. Model publishing is a separate step.')
 
