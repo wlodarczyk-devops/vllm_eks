@@ -36,7 +36,8 @@ memory_limit   = "12Gi"
 shm_size       = "2Gi"
 
 # Writable volumes on the node disk (GPU node root volume: 100 GiB, vLLM image ~11 GB).
-# home holds the ~8 GB model plus vLLM/Triton/torch caches; both are emptied when the pod stops.
+# home holds runtime caches; a separate 15Gi volume holds verified S3 model files.
+# Volumes survive container restarts but are deleted on pod removal.
 home_size = "30Gi"
 tmp_size  = "5Gi"
 

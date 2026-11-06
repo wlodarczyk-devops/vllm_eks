@@ -3,3 +3,8 @@
 *.tfstate.*
 *.tfplan
 crash.log
+
+# Generated model artifacts and local Python tooling
+model-store/artifacts/
+.venv/
+__pycache__/

@@ -39,7 +39,7 @@ variable "vllm_version" {
 }
 
 variable "model" {
-  description = "Hugging Face model ID to serve"
+  description = "Hugging Face model ID advertised by the API; must match the active S3 release"
   type        = string
 }
 
