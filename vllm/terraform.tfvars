@@ -19,8 +19,7 @@ prestop_sleep_seconds    = 15
 host = "0.0.0.0"
 port = 8000
 
-# Apache 2.0, not gated (no HF token needed), 4.0B params, ~7.5 GiB weights in fp16
-model = "Qwen/Qwen3-4B-Instruct-2507"
+# Model identity/version/checksum are selected once in models/release.json.
 # fp16: T4 (g4dn) has no bf16 support; same setting on g5/g6 for consistent behaviour
 dtype = "half"
 

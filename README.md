@@ -24,7 +24,7 @@ AWS eu-central-1
             │     └── nvidia-device-plugin (kube-system)
             ├── namespace vllm                                  (vllm/)
             │     ├── Deployment vllm  2 × Qwen3-4B-Instruct-2507 (1 per GPU node), fp16, 16k context
-            │     └── Service vllm     ClusterIP :8000           ← round-robin
+            │     └── Service vllm     ClusterIP :8000           ← connection balancing
             ├── namespace vllm: llm-d Router (PoC)               (llm-d/)
             │     ├── Deployment llm-d-epp  EPP + Envoy sidecar  (system node)
             │     ├── Service llm-d-epp     ClusterIP :80        ← prefix-cache/load-aware
@@ -42,7 +42,7 @@ AWS eu-central-1
 ├── models/              # Terraform: private model bucket; one model publishing script
 ├── eks/                 # Terraform: EKS cluster, node groups, NVIDIA device plugin
 ├── vllm/                # Terraform: vLLM namespace, Deployment, Service
-│   └── README.md        # every vLLM option, explained
+│   └── README.md        # deployment settings and selected tuning options
 ├── llm-d/               # Terraform: llm-d Router PoC (InferencePool CRD, router Helm chart)
 │   └── README.md        # how llm-d works and how to test it
 ├── .github/workflows/
@@ -50,6 +50,31 @@ AWS eu-central-1
 ├── CLAUDE.md            # guidelines for Claude Code in this repo
 └── README.md
 ```
+
+## What is still needed
+
+| Component | Decision | Reason |
+| --- | --- | --- |
+| `vpc/` | Keep | Networking, NAT for remaining external dependencies, and private ECR/S3/STS access |
+| `eks/` | Keep | Cluster, CPU/GPU nodes, NVIDIA plugin, CNI identity and autoscaling |
+| `ecr/` | Keep | Engine/downloader repository and image publishing |
+| `models/` | Keep | S3 bucket infrastructure, model publishing, and the selected artifact's version/checksum |
+| `vllm/` | Keep | Model-reader IRSA, init download, GPU serving and Service |
+| `llm-d/` and its values files | Keep for the selected routing design | Cache/load-aware routing; the plain vLLM Service can serve without this optional router |
+| `versions.tf`, variables, tfvars, outputs and lockfiles | Keep in each stack | Separate state roots have their own provider/configuration contracts; repeated filenames are intentional |
+| Publishing scripts and release JSON files | Keep | Terraform creates infrastructure; these publish and select the actual images/model |
+| `Dockerfile.downloader` and `.dockerignore` | Keep | Build only the archive-download tool image; see [why it exists](ecr/README.md#why-dockerfiledownloader-remains) |
+| `CLAUDE.md` and the Claude review workflow | Optional developer tooling, kept | Used for the repository's existing authoring/review workflow; not a serving dependency |
+
+The source folder `models/` contains code/configuration, not weights. The S3 archive
+holds the durable weights; `/models/model` inside a pod is the temporary extracted
+copy. These are three different locations.
+
+The engine Dockerfile and test directory have already been removed. The copied
+upstream CLI dump and duplicate deployment model-name setting are also removed;
+`models/release.json` is the source of the served model name. Keep Terraform state
+files for existing resources. Ignored `.terraform/` directories are downloaded
+caches, not obsolete application code or a substitute for state.
 
 Each Terraform folder is a separate stack with the same files:
 
@@ -208,7 +233,7 @@ The stack finds the cluster by name (`cluster_name`) through the AWS API, so it 
 
 Why this model fits: on the smallest GPU (T4, 16 GiB), the fp16 weights take ~7.5 GiB. Each token in the KV cache takes ~144 KiB. With 90% of GPU memory in use, ~4.6 GiB (~33k tokens) is left for the KV cache, so 2 full 16k-token requests fit at once. On A10G/L4 there's ~11.5 GiB (~84k tokens).
 
-To change the model or tune vLLM, see [`vllm/README.md`](vllm/README.md). It covers every `vllm serve` option.
+To change the model or tune vLLM, see [`vllm/README.md`](vllm/README.md). It explains deployment settings and links to the full upstream CLI reference.
 
 ### 4. llm-d Router (PoC)
 
@@ -243,13 +268,14 @@ Troubleshooting:
 
 ```bash
 kubectl -n vllm get pods -o wide
-kubectl -n vllm logs deploy/vllm -f           # model download, KV cache size, request stats
+kubectl -n vllm logs deploy/vllm -c download-model  # S3 download/checksum/extraction
+kubectl -n vllm logs deploy/vllm -c vllm -f         # engine load, KV cache, request stats
 kubectl -n vllm describe pod -l app=vllm      # scheduling problems, e.g. no GPU node
 ```
 
 ## Cost and teardown
 
-The GPU node, the NAT gateway and the EKS control plane are billed per hour while they exist. Destroy everything when you're done, in reverse order:
+GPU nodes, NAT, EKS and interface endpoints incur recurring charges. Tear down compute/network resources in reverse order when finished; ECR and S3 releases are retained separately for rollback:
 
 ```bash
 cd llm-d && terraform destroy
@@ -273,11 +299,13 @@ kubectl -n kube-system get configmap cluster-autoscaler-status -o yaml   # per n
 
 ## Configuration
 
-All settings are variables. Change values in the stack's `terraform.tfvars` and run `terraform apply`. Settings that must match across stacks:
+Infrastructure and deployment settings are stack variables in `terraform.tfvars`.
+Image selection lives in `ecr/image/release.json`; model identity/version/checksum
+live in `models/release.json`. Settings that must match across stacks:
 
 | Setting | Must be the same in |
 |---|---|
-| Cluster name `vllm-eks` | `vpc/` `cluster_name` (subnet tags), `eks/` `cluster_name`, `vllm/` `cluster_name`, `llm-d/` `cluster_name` |
+| Cluster name `vllm-eks` | `vpc/` `cluster_name` (subnet tags), `eks/`, `ecr/`, `models/`, `vllm/`, `llm-d/` `cluster_name` |
 | Region `eu-central-1` | `region` in all stacks, and `azs` in `vpc/` |
 | GPU taint and label | `eks/main.tf` node group and `vllm/main.tf` toleration and node selector; `llm-d/main.tf` avoids nodes with the label |
 | vLLM namespace, labels, port | `vllm/` (`namespace`, `app=vllm`, `port`) and `llm-d/` (`namespace`, `model_server_labels`, `model_server_port`) |

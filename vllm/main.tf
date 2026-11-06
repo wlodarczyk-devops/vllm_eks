@@ -13,7 +13,7 @@ locals {
   # unknown VLLM_* variables, and VLLM_PORT / VLLM_HOST_IP are reserved for vLLM's internal use.
   serve_env = {
     SERVE_MODEL                  = "/models/model"
-    SERVE_MODEL_NAME             = var.model
+    SERVE_MODEL_NAME             = local.model_release.model_id
     SERVE_HOST                   = var.host
     SERVE_PORT                   = tostring(var.port)
     SERVE_DTYPE                  = var.dtype
@@ -381,10 +381,6 @@ resource "kubernetes_deployment_v1" "vllm" {
   }
 
   lifecycle {
-    precondition {
-      condition     = var.model == local.model_release.model_id
-      error_message = "model must match models/release.json."
-    }
     precondition {
       condition     = try(length(local.model_release.version_id) > 0, false) && can(regex("^[0-9a-f]{64}$", local.model_release.sha256))
       error_message = "Publish the model first: models/release.json must contain its S3 version_id and SHA-256."

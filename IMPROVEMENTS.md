@@ -12,6 +12,7 @@ and [models/README.md](models/README.md) for publishing and deployment.
 | Exact-version, endpoint-scoped IRSA | [`vllm/model-storage.tf`](vllm/model-storage.tf) | Grant only GetObjectVersion on the selected archive/version via the S3 endpoint | Negative-access verification and bounded old/new-version overlap for upgrades |
 | One init container | [`vllm/main.tf`](vllm/main.tf) | Download, verify SHA-256 and extract before serving; mount identity only in the downloader | Measured startup budgets and persistent caching if needed |
 | Offline serving with read-only local weights | Model volume and offline settings in the deployment | Preserve the API model name and keep AWS tokens out of the serving container | Workload network isolation and GPU/capacity validation |
+| Repository cleanup | [README inventory](README.md#what-is-still-needed), vLLM configuration/docs | Use one model identity source, replace the copied CLI dump with an upstream link, and explain the retained downloader/build files | Revisit optional developer tooling only if its workflow is no longer used |
 
 No tests directory is included. Static parsing/format checks passed; deployment,
 image publishing and model uploading remain pending. No Terraform commands or

@@ -18,6 +18,20 @@ hidden downloads. `release.json` selects the upstream commit, S3 key, exact obje
 version and archive checksum. Its version/checksum start as null and deployment
 is blocked until publication fills them in.
 
+## Why the repository models directory remains
+
+| Location | Contents |
+| --- | --- |
+| `models/` in this repository | Bucket Terraform, publishing script/dependency, and small release JSON |
+| S3 | Durable versioned model archive |
+| `/models/model` inside a pod | Extracted files in an `emptyDir`, mounted read-only by vLLM |
+
+`vllm/model-storage.tf` reads `models/release.json` to select the object/version,
+checksum and API model name. `models/publish.py` stages downloads in a temporary
+directory outside the repository and removes them when finished. Removing the
+repository directory would remove the bucket's source configuration and break the
+release-file reference. It would not be a way to clear pod model caches.
+
 ## Deployment order
 
 1. Apply `vpc/`, creating ECR, S3 and STS endpoints. Create/retain EKS and its OIDC

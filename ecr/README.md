@@ -9,6 +9,28 @@ Both bases are pinned by digest in `image/release.json`. Tags are immutable, pus
 scanning is enabled, and only untagged images older than 14 days are cleaned up.
 Tagged releases remain available for rollback.
 
+## Why Dockerfile.downloader remains
+
+This file creates a startup tool image, separate from the vLLM engine. The init
+container runs these operations before serving starts:
+
+1. `aws s3api get-object` fetches the exact archive version using IRSA.
+2. `sha256sum` checks its expected bytes.
+3. `tar`/`gzip` extract the model into the shared volume.
+
+The Dockerfile installs the extraction/checksum tools at build time and sets a
+non-root default user. Pods then need no package installation or public package
+repository access. The official AWS CLI image guarantees the AWS CLI interface,
+not arbitrary bundled utilities; our derived image explicitly supplies its tools.
+See [AWS's supported image interface](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-docker.html).
+
+This image contains no model weights, GPU driver or serving engine. It exits when
+the model is ready. `publish.py` builds it once per release, and the deployment
+pulls its ECR digest. Removing this Dockerfile requires supplying an equivalent
+prebuilt image or changing the archive-download design. The engine Dockerfile is
+unnecessary because the official engine is mirrored and Kubernetes sets its
+runtime options.
+
 ## Create and publish
 
 In a deployment session, create the repository:
